@@ -1,50 +1,53 @@
 #include <RF24Network.h>
 #include <RF24.h>
 #include <SPI.h>
-
-#define MSG_REGISTER 1
-#define MSG_SUBSCRIBE 2
-#define MSG_TX_BOOL 3
-#define MSG_TX_FLOAT 4
-
-#define SUB_BOOL 1
-#define SUB_FLOAT 2
-
-#define SUBS_RETRY_TIMEOUT 1000
+#include <HACommon.h>
+#include <HAHelper.h>
 
 byte switchPin = 4;
+bool doorState = false;
 // LED (switch) PIN
 byte led1Pin = 5;
 byte led2Pin = 6;
 
 // Radio with CE & CSN connected to pins 7 & 8
 RF24 radio(7, 8);
-RF24Network network(radio);
+RF24Network RFNetwork(radio);
 
 // Constants that identify this node and the node to send data to
 const uint16_t this_node = 1;
 const uint16_t control_node = 0;
 
+int globalcount = 0;
+
 // Time between packets (in ms)
 const unsigned long interval = 1000;  // every sec
 
-// Structure of our message
-struct message_subscribe {
-  byte type;
-  byte id;
-  char channel[64];
-};
-
-// Structure of our message
-struct message_action {
-  byte id;
-  bool state;
-};
-
-message_action DoorState;
-
-// The network header initialized for this node
-RF24NetworkHeader writeHeader(control_node);
+class MyHANet: public HomeAutoNetwork
+{
+  public:
+  MyHANet(RF24Network *_net):HomeAutoNetwork(_net) {}
+  virtual void OnMessage(uint16_t from_node, message_data *message)
+  {
+      bool state = (bool)message->data[0];
+      Serial.print("Data received from node ");
+      Serial.print(from_node);
+      // Check value and turn the LED on or off
+      Serial.print(" {Id: ");
+      Serial.print(message->code);
+      Serial.print(", Value: ");
+      Serial.print(state);
+      Serial.println("}");
+      if (state) 
+      {
+        digitalWrite(message->code, HIGH);
+      } 
+      else 
+      {
+        digitalWrite(message->code, LOW);
+      }
+  }
+} HANetwork(&RFNetwork);
 
 void setup(void)
 {
@@ -55,7 +58,7 @@ void setup(void)
   SPI.begin();
   radio.begin();
   delay(5);
-  network.begin(90, this_node);
+  RFNetwork.begin(90, this_node);
 
   pinMode(led1Pin, OUTPUT);
   pinMode(led2Pin, OUTPUT);
@@ -63,99 +66,57 @@ void setup(void)
 
   delay(50);
 
-  DoorState.id = switchPin;
-  DoorState.state = digitalRead(switchPin);
-  ch_subscribe( SUB_BOOL, led1Pin, "node1/switch1");
-  ch_subscribe( SUB_BOOL, led2Pin, "node1/switch2");
-  ch_register( SUB_BOOL, switchPin, "node1/door");
+  doorState = digitalRead(switchPin);
+  initialisemessaging();
 }
 
-void ch_register(byte t, byte i, const char *c)
+void initialisemessaging()
 {
-  Serial.print("Registering channel:");
-  writeHeader.type = MSG_REGISTER;
-  regsub(t, i, c);
+  HANetwork.SubscribeChannel( DT_BOOL, led1Pin, "node1/switch1");
+  HANetwork.SubscribeChannel( DT_BOOL, led2Pin, "node1/switch2");
+  HANetwork.RegisterChannel( DT_BOOL, switchPin, "node1/door");
+  HANetwork.RegisterChannel( DT_TEXT, 1, "node1/name");
 }
 
-void ch_subscribe(byte t, byte i, const char *c)
+void loop() 
 {
-  Serial.print("Subscribing to channel:");
-  writeHeader.type = MSG_SUBSCRIBE;
-  regsub(t, i, c);
-}
-void regsub(byte t, byte i, const char *c)
-{
-  writeHeader.from_node = this_node;
-  message_subscribe mess;
-  mess.type = t;
-  mess.id = i;
-  strcpy(mess.channel, c);
-  Serial.print((char *)mess.channel); 
-  Serial.print("...");
-  while(!network.write(writeHeader, &mess, sizeof(mess))) 
-  {
-    Serial.print("."); 
-    delay(SUBS_RETRY_TIMEOUT);
-  }
-    Serial.print("OK.\n"); 
-}
-
-void loop() {
 
   // Update network data
-  network.update();
+  RFNetwork.update();
 
 /// RECEIVING MESSAGES
-  while (network.available()) 
-  {
-    RF24NetworkHeader header;
-    message_action message;
-    network.peek(header);
-    if (header.type == MSG_TX_BOOL) 
-    {
-      network.read(header, &message, sizeof(message));
-      Serial.print("Data received from node ");
-      Serial.print(header.from_node);
-      // Check value and turn the LED on or off
-      Serial.print(" {Id: ");
-      Serial.print(message.id);
-      Serial.print(", Value: ");
-      Serial.print(message.state);
-      Serial.println("}");
-      if (message.state) 
-      {
-        digitalWrite(message.id, HIGH);
-      } 
-      else 
-      {
-        digitalWrite(message.id, LOW);
-      }
-    } 
-    else 
-    {
-      // This is not a type we recognize
-      network.read(header, &message, sizeof(message));
-      Serial.print("Unknown message received from node ");
-      Serial.println(header.from_node);
-    }
-  }
+  HANetwork.CheckForMessages();
+  
 /// SENDING MESSAGES
 
-  if( DoorState.state != digitalRead(switchPin) )
+  if( doorState != digitalRead(switchPin) )
   {
-    DoorState.state = !DoorState.state;
-    writeHeader.type = MSG_TX_BOOL;
-    if( network.write(writeHeader, &DoorState, sizeof(DoorState)))
+    bool newState = !doorState;
+    message_data txMessage;
+    txMessage.code = switchPin;
+    txMessage.type = DT_BOOL;
+    memcpy(txMessage.data, &newState, 1);
+    
+    if( HANetwork.SendMessage(&txMessage, 1) )
     {
       Serial.print("Door updated to ");
-      Serial.println(DoorState.state);
+      doorState = newState;
+      Serial.println(doorState);
     } 
     else
     {
       Serial.println("Door failed update");      
     }
   }
-
+  /*
+  txMessage.code = 1;
+  txMessage.type = DT_INT32;
+  int32_t value = globalcount++;
+  memcpy(txMessage.data, &value, 4);
+  writeHeader.type = MSG_DATA;
+  network.write(writeHeader, &txMessage, 6);
+ Serial.println("Send");
+*/
 
   // Wait a bit before we start over again
   delay(interval);
