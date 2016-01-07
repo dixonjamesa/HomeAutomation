@@ -18,6 +18,7 @@ RF24Network RFNetwork(radio);
 const uint16_t this_node = 1;
 const uint16_t control_node = 0;
 
+float gTemperature = 0;
 int globalcount = 0;
 
 // Time between packets (in ms)
@@ -76,6 +77,7 @@ void initialisemessaging()
   HANetwork.SubscribeChannel( DT_BOOL, led2Pin, "node1/switch2");
   HANetwork.RegisterChannel( DT_BOOL, switchPin, "node1/door");
   HANetwork.RegisterChannel( DT_TEXT, 1, "node1/name");
+  HANetwork.RegisterChannel( DT_FLOAT, 2, &gTemperature, 0.25f, "node1/temperature");
 }
 
 void loop() 
@@ -85,7 +87,7 @@ void loop()
   RFNetwork.update();
 
 /// RECEIVING MESSAGES
-  HANetwork.CheckForMessages();
+  HANetwork.Update();
   
 /// SENDING MESSAGES
 
@@ -118,6 +120,7 @@ void loop()
  Serial.println("Send");
 */
 
+  gTemperature += 0.5f;
   // Wait a bit before we start over again
   delay(interval);
 }

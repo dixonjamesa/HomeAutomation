@@ -4,6 +4,7 @@
 #define MSG_PING 4
 #define MSG_PINGACK 5
 #define MSG_UNKNOWN 6
+#define MSG_AWAKE 7
 
 #define DT_BOOL 1
 #define DT_FLOAT 2

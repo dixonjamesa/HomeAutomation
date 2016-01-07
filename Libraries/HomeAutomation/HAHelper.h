@@ -1,23 +1,52 @@
 #define SUBS_RETRY_TIMEOUT 1000
 
+struct HANWatcher
+{
+	float delta;
+	void *watch;
+	message_data data;
+}
+
 class HomeAutoNetwork
 {
 	private:
 		RF24Network *TheNetwork = NULL;
 		bool Started = false;
+		std::list<HANWatcher *> WatchingItems;
+		
 	public:
 		HomeAutoNetwork(RF24Network *net):
 		TheNetwork(net)
-		{}
+		{
+		  RF24NetworkHeader writeHeader(0);
+		  writeHeader.type = MSG_AWAKE;
+		  Serial.print("Hello world); 
+		  Serial.print("...");
+		  while(!TheNetwork->write(*header, NULL, 0)) 
+		  {
+			Serial.print("."); 
+			delay(SUBS_RETRY_TIMEOUT);
+		  }
+			Serial.print("OK.\n"); 
+		}
 		
 		virtual void OnMessage(uint16_t from_node, message_data *_message);
 		
-		void RegisterChannel(byte t, byte i, const char *c)
+		// Register that we want to transmit data on a channel
+		// will be sent when abs(*value) changes by > delta
+		void RegisterChannel(byte t, byte i, float *value, float delta, const char *c)
 		{
 		  RF24NetworkHeader header(0);
 		  Serial.print("Registering channel:");
 		  header.type = MSG_REGISTER;
 		  regsub(&header, t, i, c);
+		  HANWatcher *w = new HANWatch();
+		  w->data.type = t;
+		  w->data.code = i;
+		  w->delta = delta;
+		  w->watch = value;
+		  memcpy(w->data.data, value, 4);
+		  WatchingItems.push_front(w);
 		}
 
 		void SubscribeChannel(byte t, byte i, const char *c)
@@ -28,6 +57,48 @@ class HomeAutoNetwork
 		  regsub(&header, t, i, c);
 		}
 
+		// Perform an update step - check for messages, and changes on registered data variables...
+		void Update()
+		{
+			CheckForMessage();
+			for( std::list<mapitem *>::const_iterator iterator = all.begin(), end = all.end();
+				iterator != end; iterator++)
+			{
+				HANWAtcher *item = *iterator;
+				switch( item->type )
+				{
+				case DT_FLOAT:
+				{
+					float cachedvalue;
+					float nowvalue;
+					memcpy(&nowvalue, item->watch, 4);
+					memcpy(&cachedvalue, item->data.data, 4);
+					if( fabs(cachedvalue-nowvalue) > item->delta )
+					{
+						Serial.print("Value changed... transmitting...");
+						RF24NetworkHeader writeHeader(0);
+						writeHeader.type = MSG_DATA;
+						memcpy(item->data.data, &nowvalue, 4); // copy the new value into the message data
+						if(TheNetwork->write(*header, &item->data, 6)) 
+						{
+							Serial.println("OK");
+						}
+						else
+						{
+							// copy old value back, so we try again...
+							memcpy(item->data.data, &cachedvalue, 4);
+							Serial.println("FAIL");
+						}
+					}
+				}
+				break;
+				default:
+					Serial.println("Unsupported data type (%d) registered\n", item->type);
+				break;
+				}
+			}
+		}
+		
 		void CheckForMessages()
 		{
 		  while (TheNetwork->available()) 

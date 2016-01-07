@@ -61,6 +61,22 @@ class MessageMap
 		}
 		return NULL;	
 	}
+	void RemoveAll(uint16_t nodeid)
+	{
+		for( std::list<mapitem *>::const_iterator iterator = all.begin(), end = all.end();
+				iterator != end; /*deliberately nothing*/ )
+		{
+			mapitem *mi = *iterator;
+			if( mi->nodeid == nodeid )
+			{
+				iterator = all.erase(iterator);
+			}
+			else
+			{
+				iterator++;
+			}
+		}
+	}
 	bool ContainsKey(const char *channel)
 	{
 		return Match(channel)!=NULL;
@@ -217,14 +233,30 @@ int main(int argc, char** argv)
 			network.peek(header);
 			switch( header.type )
 			{
+				case MSG_AWAKE:
+				{
+					network.read(header, NULL, 0);
+					printf("AWAKE from node %o\n", header.from_node);
+					// remove any messages stored previously for this node...
+					MyMessageMap->RemoveAll(header.from_node);
+				}
+				break;
 				case MSG_REGISTER:
 				{
 					char channel[128];
 					message_subscribe message;
 					network.read(header, &message, sizeof(message));
 					sprintf(channel, "home/%s", message.channel);
-					MyMessageMap->AddMap(channel,header.from_node, message.type, message.code);
-					printf("Node %o registered channel %s\n", header.from_node, channel);				
+					mapitem *item = MyMessageMap->Match(header.from_node, message.code);
+					if( item != null )
+					{
+						printf("Node %o trying to re-register code %d for channel %s, but already on channel %s; IGNORED", header.from_node, message.code, channel, item->channel);
+					}
+					else
+					{
+						MyMessageMap->AddMap(channel,header.from_node, message.type, message.code);
+						printf("Node %o registered channel %s\n", header.from_node, channel);				
+					}
 				}
 				break;
 				case MSG_SUBSCRIBE:
