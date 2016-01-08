@@ -5,14 +5,15 @@ struct HANWatcher
 	float delta;
 	void *watch;
 	message_data data;
-}
+};
 
 class HomeAutoNetwork
 {
 	private:
 		RF24Network *TheNetwork = NULL;
 		bool Started = false;
-		std::list<HANWatcher *> WatchingItems;
+		HANWatcher ** WatchingItems;
+		int WatchedItems = 0;
 		
 	public:
 		HomeAutoNetwork(RF24Network *net):
@@ -20,33 +21,41 @@ class HomeAutoNetwork
 		{
 		  RF24NetworkHeader writeHeader(0);
 		  writeHeader.type = MSG_AWAKE;
-		  Serial.print("Hello world); 
+		  Serial.print("Hello world"); 
 		  Serial.print("...");
-		  while(!TheNetwork->write(*header, NULL, 0)) 
+		  while(!TheNetwork->write(writeHeader, NULL, 0)) 
 		  {
 			Serial.print("."); 
 			delay(SUBS_RETRY_TIMEOUT);
 		  }
 			Serial.print("OK.\n"); 
 		}
-		
-		virtual void OnMessage(uint16_t from_node, message_data *_message);
-		
+				
+		virtual void OnMessage(uint16_t from_node, message_data *_message) {}
+
 		// Register that we want to transmit data on a channel
 		// will be sent when abs(*value) changes by > delta
 		void RegisterChannel(byte t, byte i, float *value, float delta, const char *c)
 		{
+		  HANWatcher *w;
+		  HANWatcher **newwatches;
 		  RF24NetworkHeader header(0);
 		  Serial.print("Registering channel:");
 		  header.type = MSG_REGISTER;
 		  regsub(&header, t, i, c);
-		  HANWatcher *w = new HANWatch();
+		  
+		  WatchedItems++;
+		  newwatches = new HANWatcher*[WatchedItems];
+		  for(int wid=0;wid<WatchedItems;wid++) newwatches[wid] = WatchingItems[wid];
+		  if( WatchedItems > 1 ) delete WatchingItems;
+		  WatchingItems = newwatches;
+		  w = new HANWatcher();
 		  w->data.type = t;
 		  w->data.code = i;
 		  w->delta = delta;
 		  w->watch = value;
 		  memcpy(w->data.data, value, 4);
-		  WatchingItems.push_front(w);
+		  WatchingItems[WatchedItems-1] = w;
 		}
 
 		void SubscribeChannel(byte t, byte i, const char *c)
@@ -60,12 +69,12 @@ class HomeAutoNetwork
 		// Perform an update step - check for messages, and changes on registered data variables...
 		void Update()
 		{
-			CheckForMessage();
-			for( std::list<mapitem *>::const_iterator iterator = all.begin(), end = all.end();
-				iterator != end; iterator++)
+			CheckForMessages();
+#if false
+			for( int i=0; i < WatchedItems ; i++ )
 			{
-				HANWAtcher *item = *iterator;
-				switch( item->type )
+				HANWatcher *item = WatchingItems[i];
+				switch( item->data.type )
 				{
 				case DT_FLOAT:
 				{
@@ -79,7 +88,7 @@ class HomeAutoNetwork
 						RF24NetworkHeader writeHeader(0);
 						writeHeader.type = MSG_DATA;
 						memcpy(item->data.data, &nowvalue, 4); // copy the new value into the message data
-						if(TheNetwork->write(*header, &item->data, 6)) 
+						if(TheNetwork->write(writeHeader, &item->data, 6)) 
 						{
 							Serial.println("OK");
 						}
@@ -93,10 +102,12 @@ class HomeAutoNetwork
 				}
 				break;
 				default:
-					Serial.println("Unsupported data type (%d) registered\n", item->type);
+					Serial.print("Unsupported data type registered: ");
+					Serial.println(item->data.type);
 				break;
 				}
 			}
+#endif		
 		}
 		
 		void CheckForMessages()
@@ -136,7 +147,6 @@ class HomeAutoNetwork
 			writeHeader.type = MSG_DATA;
 			return TheNetwork->write(writeHeader, _message, _datasize+2);
 		}
-		
 	private:
 		void regsub(RF24NetworkHeader *header, byte t, byte i, const char *c)
 		{

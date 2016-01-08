@@ -4,6 +4,7 @@
 #include <HACommon.h>
 #include <HAHelper.h>
 
+
 byte switchPin = 4;
 bool doorState = false;
 // LED (switch) PIN
@@ -75,8 +76,8 @@ void initialisemessaging()
 {
   HANetwork.SubscribeChannel( DT_BOOL, led1Pin, "node1/switch1");
   HANetwork.SubscribeChannel( DT_BOOL, led2Pin, "node1/switch2");
-  HANetwork.RegisterChannel( DT_BOOL, switchPin, "node1/door");
-  HANetwork.RegisterChannel( DT_TEXT, 1, "node1/name");
+  //HANetwork.RegisterChannel( DT_BOOL, switchPin, "node1/door");
+  //HANetwork.RegisterChannel( DT_TEXT, 1, "node1/name");
   HANetwork.RegisterChannel( DT_FLOAT, 2, &gTemperature, 0.25f, "node1/temperature");
 }
 
