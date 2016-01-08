@@ -4,11 +4,12 @@
 #include <HACommon.h>
 #include <HAHelper.h>
 
+
 byte switchPin = 4;
 bool doorState = false;
 // LED (switch) PIN
-byte led1Pin = 5;
-byte led2Pin = 6;
+byte led1Pin = 2;
+byte led2Pin = 3;
 
 // Radio with CE & CSN connected to pins 7 & 8
 RF24 radio(7, 8);
@@ -20,6 +21,8 @@ const uint16_t control_node = 0;
 
 float gTemperature = 0;
 int globalcount = 0;
+
+char gMessage[64] = "";
 
 // Time between packets (in ms)
 const unsigned long interval = 1000;  // every sec
@@ -50,16 +53,19 @@ class MyHANet: public HomeAutoNetwork
   }
 } HANetwork(&RFNetwork);
 
+
 void setup(void)
 {
   // Set up the Serial Monitor
   Serial.begin(9600);
+  Serial.println("Start");
 
   // Initialize all radio related modules
   SPI.begin();
   radio.begin();
   delay(5);
   RFNetwork.begin(90, this_node);
+  HANetwork.Begin();
 
   pinMode(led1Pin, OUTPUT);
   pinMode(led2Pin, OUTPUT);
@@ -69,20 +75,21 @@ void setup(void)
 
   doorState = digitalRead(switchPin);
   initialisemessaging();
+  Serial.println("Initialised");
 }
 
 void initialisemessaging()
 {
   HANetwork.SubscribeChannel( DT_BOOL, led1Pin, "node1/switch1");
   HANetwork.SubscribeChannel( DT_BOOL, led2Pin, "node1/switch2");
-  HANetwork.RegisterChannel( DT_BOOL, switchPin, "node1/door");
-  HANetwork.RegisterChannel( DT_TEXT, 1, "node1/name");
-  HANetwork.RegisterChannel( DT_FLOAT, 2, &gTemperature, 0.25f, "node1/temperature");
+  HANetwork.RegisterChannel( DT_BOOL, switchPin, &doorState, 0, "node1/door");
+  HANetwork.RegisterChannel( DT_TEXT, 101, gMessage, 0, "node1/name");
+  HANetwork.RegisterChannel( DT_FLOAT, 102, &gTemperature, 0.25f, "node1/temperature");
 }
 
 void loop() 
 {
-
+  
   // Update network data
   RFNetwork.update();
 
@@ -91,36 +98,14 @@ void loop()
   
 /// SENDING MESSAGES
 
-  if( doorState != digitalRead(switchPin) )
-  {
-    bool newState = !doorState;
-    message_data txMessage;
-    txMessage.code = switchPin;
-    txMessage.type = DT_BOOL;
-    memcpy(txMessage.data, &newState, 1);
-    
-    if( HANetwork.SendMessage(&txMessage, 1) )
-    {
-      Serial.print("Door updated to ");
-      doorState = newState;
-      Serial.println(doorState);
-    } 
-    else
-    {
-      Serial.println("Door failed update");      
-    }
-  }
-  /*
-  txMessage.code = 1;
-  txMessage.type = DT_INT32;
-  int32_t value = globalcount++;
-  memcpy(txMessage.data, &value, 4);
-  writeHeader.type = MSG_DATA;
-  network.write(writeHeader, &txMessage, 6);
- Serial.println("Send");
-*/
-
+  doorState = digitalRead(switchPin);
+  strcpy(gMessage, "FirstTest");
   gTemperature += 0.5f;
+
+  digitalWrite(led1Pin,HIGH);
+  delay(50);
+  digitalWrite(led1Pin,LOW);
+  Serial.println("loop");
   // Wait a bit before we start over again
   delay(interval);
 }
