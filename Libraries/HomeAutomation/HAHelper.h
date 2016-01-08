@@ -19,6 +19,10 @@ class HomeAutoNetwork
 		HomeAutoNetwork(RF24Network *net):
 		TheNetwork(net)
 		{
+		}
+		
+		void Begin()
+		{
 		  RF24NetworkHeader writeHeader(0);
 		  writeHeader.type = MSG_AWAKE;
 		  Serial.print("Hello world"); 
@@ -28,9 +32,9 @@ class HomeAutoNetwork
 			Serial.print("."); 
 			delay(SUBS_RETRY_TIMEOUT);
 		  }
-			Serial.print("OK.\n"); 
+		  Serial.print("OK.\n"); 
 		}
-				
+		
 		virtual void OnMessage(uint16_t from_node, message_data *_message) {}
 
 		// Register that we want to transmit data on a channel

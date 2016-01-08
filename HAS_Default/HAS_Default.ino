@@ -8,8 +8,8 @@
 byte switchPin = 4;
 bool doorState = false;
 // LED (switch) PIN
-byte led1Pin = 5;
-byte led2Pin = 6;
+byte led1Pin = 2;
+byte led2Pin = 3;
 
 // Radio with CE & CSN connected to pins 7 & 8
 RF24 radio(7, 8);
@@ -53,16 +53,19 @@ class MyHANet: public HomeAutoNetwork
   }
 } HANetwork(&RFNetwork);
 
+
 void setup(void)
 {
   // Set up the Serial Monitor
   Serial.begin(9600);
+  Serial.println("Start");
 
   // Initialize all radio related modules
   SPI.begin();
   radio.begin();
   delay(5);
   RFNetwork.begin(90, this_node);
+  HANetwork.Begin();
 
   pinMode(led1Pin, OUTPUT);
   pinMode(led2Pin, OUTPUT);
@@ -72,6 +75,7 @@ void setup(void)
 
   doorState = digitalRead(switchPin);
   initialisemessaging();
+  Serial.println("Initialised");
 }
 
 void initialisemessaging()
@@ -85,7 +89,7 @@ void initialisemessaging()
 
 void loop() 
 {
-
+  
   // Update network data
   RFNetwork.update();
 
@@ -97,7 +101,11 @@ void loop()
   doorState = digitalRead(switchPin);
   strcpy(gMessage, "FirstTest");
   gTemperature += 0.5f;
-  
+
+  digitalWrite(led1Pin,HIGH);
+  delay(50);
+  digitalWrite(led1Pin,LOW);
+  Serial.println("loop");
   // Wait a bit before we start over again
   delay(interval);
 }
