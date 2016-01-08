@@ -22,6 +22,8 @@ const uint16_t control_node = 0;
 float gTemperature = 0;
 int globalcount = 0;
 
+char gMessage[64] = "";
+
 // Time between packets (in ms)
 const unsigned long interval = 1000;  // every sec
 
@@ -76,9 +78,9 @@ void initialisemessaging()
 {
   HANetwork.SubscribeChannel( DT_BOOL, led1Pin, "node1/switch1");
   HANetwork.SubscribeChannel( DT_BOOL, led2Pin, "node1/switch2");
-  //HANetwork.RegisterChannel( DT_BOOL, switchPin, "node1/door");
-  //HANetwork.RegisterChannel( DT_TEXT, 1, "node1/name");
-  HANetwork.RegisterChannel( DT_FLOAT, 2, &gTemperature, 0.25f, "node1/temperature");
+  HANetwork.RegisterChannel( DT_BOOL, switchPin, &doorState, 0, "node1/door");
+  HANetwork.RegisterChannel( DT_TEXT, 101, gMessage, 0, "node1/name");
+  HANetwork.RegisterChannel( DT_FLOAT, 102, &gTemperature, 0.25f, "node1/temperature");
 }
 
 void loop() 
@@ -92,36 +94,10 @@ void loop()
   
 /// SENDING MESSAGES
 
-  if( doorState != digitalRead(switchPin) )
-  {
-    bool newState = !doorState;
-    message_data txMessage;
-    txMessage.code = switchPin;
-    txMessage.type = DT_BOOL;
-    memcpy(txMessage.data, &newState, 1);
-    
-    if( HANetwork.SendMessage(&txMessage, 1) )
-    {
-      Serial.print("Door updated to ");
-      doorState = newState;
-      Serial.println(doorState);
-    } 
-    else
-    {
-      Serial.println("Door failed update");      
-    }
-  }
-  /*
-  txMessage.code = 1;
-  txMessage.type = DT_INT32;
-  int32_t value = globalcount++;
-  memcpy(txMessage.data, &value, 4);
-  writeHeader.type = MSG_DATA;
-  network.write(writeHeader, &txMessage, 6);
- Serial.println("Send");
-*/
-
+  doorState = digitalRead(switchPin);
+  strcpy(gMessage, "FirstTest");
   gTemperature += 0.5f;
+  
   // Wait a bit before we start over again
   delay(interval);
 }

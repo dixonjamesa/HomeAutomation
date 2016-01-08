@@ -35,27 +35,29 @@ class HomeAutoNetwork
 
 		// Register that we want to transmit data on a channel
 		// will be sent when abs(*value) changes by > delta
+		void RegisterChannel(byte t, byte i, byte *value, float delta, const char *c)
+		{
+		  registerCommon(t, i, value, delta, 1, c);
+		}
+		void RegisterChannel(byte t, byte i, bool *value, float delta, const char *c)
+		{
+		  registerCommon(t, i, value, delta, 1, c);
+		}
 		void RegisterChannel(byte t, byte i, float *value, float delta, const char *c)
 		{
-		  HANWatcher *w;
-		  HANWatcher **newwatches;
-		  RF24NetworkHeader header(0);
-		  Serial.print("Registering channel:");
-		  header.type = MSG_REGISTER;
-		  regsub(&header, t, i, c);
-		  
-		  WatchedItems++;
-		  newwatches = new HANWatcher*[WatchedItems];
-		  for(int wid=0;wid<WatchedItems;wid++) newwatches[wid] = WatchingItems[wid];
-		  if( WatchedItems > 1 ) delete WatchingItems;
-		  WatchingItems = newwatches;
-		  w = new HANWatcher();
-		  w->data.type = t;
-		  w->data.code = i;
-		  w->delta = delta;
-		  w->watch = value;
-		  memcpy(w->data.data, value, 4);
-		  WatchingItems[WatchedItems-1] = w;
+		  registerCommon(t, i, value, delta, 4, c);
+		}
+		void RegisterChannel(byte t, byte i, int *value, float delta, const char *c)
+		{
+		  registerCommon(t, i, value, delta, 2, c);
+		}
+		void RegisterChannel(byte t, byte i, long *value, float delta, const char *c)
+		{
+		  registerCommon(t, i, value, delta, 4, c);
+		}
+		void RegisterChannel(byte t, byte i, char *value, float delta, const char *c)
+		{
+		  registerCommon(t, i, value, delta, strlen(value), c);
 		}
 
 		void SubscribeChannel(byte t, byte i, const char *c)
@@ -70,7 +72,6 @@ class HomeAutoNetwork
 		void Update()
 		{
 			CheckForMessages();
-#if false
 			for( int i=0; i < WatchedItems ; i++ )
 			{
 				HANWatcher *item = WatchingItems[i];
@@ -84,20 +85,59 @@ class HomeAutoNetwork
 					memcpy(&cachedvalue, item->data.data, 4);
 					if( fabs(cachedvalue-nowvalue) > item->delta )
 					{
-						Serial.print("Value changed... transmitting...");
-						RF24NetworkHeader writeHeader(0);
-						writeHeader.type = MSG_DATA;
 						memcpy(item->data.data, &nowvalue, 4); // copy the new value into the message data
-						if(TheNetwork->write(writeHeader, &item->data, 6)) 
-						{
-							Serial.println("OK");
-						}
-						else
-						{
-							// copy old value back, so we try again...
-							memcpy(item->data.data, &cachedvalue, 4);
-							Serial.println("FAIL");
-						}
+						sendDataMessage(item, &cachedvalue, 4);
+					}
+				}
+				break;
+				case DT_BOOL:
+				case DT_BYTE:
+				{
+					byte cachedvalue;
+					byte nowvalue;
+					memcpy(&nowvalue, item->watch, 1);
+					memcpy(&cachedvalue, item->data.data, 1);
+					if( fabs(cachedvalue-nowvalue) > item->delta )
+					{
+						memcpy(item->data.data, &nowvalue, 1); // copy the new value into the message data
+						sendDataMessage(item, &cachedvalue, 1);
+					}
+				}
+				break;
+				case DT_INT16:
+				{
+					int cachedvalue;
+					int nowvalue;
+					memcpy(&nowvalue, item->watch, 2);
+					memcpy(&cachedvalue, item->data.data, 2);
+					if( fabs(cachedvalue-nowvalue) > item->delta )
+					{
+						memcpy(item->data.data, &nowvalue, 2); // copy the new value into the message data
+						sendDataMessage(item, &cachedvalue, 2);
+					}
+				}
+				break;
+				case DT_INT32:
+				{
+					long cachedvalue;
+					long nowvalue;
+					memcpy(&nowvalue, item->watch, 4);
+					memcpy(&cachedvalue, item->data.data, 4);
+					if( fabs(cachedvalue-nowvalue) > item->delta )
+					{
+						memcpy(item->data.data, &nowvalue, 4); // copy the new value into the message data
+						sendDataMessage(item, &cachedvalue, 4);
+					}
+				}
+				break;
+				case DT_TEXT:
+				{
+					char *cachedvalue = item->data.data;
+					char *nowvalue = (char *)item->watch;
+					if( strcmp(cachedvalue, nowvalue) )
+					{
+						strcpy(item->data.data, nowvalue); // copy the new value into the message data
+						sendDataMessage(item, &cachedvalue, 4);
 					}
 				}
 				break;
@@ -107,7 +147,6 @@ class HomeAutoNetwork
 				break;
 				}
 			}
-#endif		
 		}
 		
 		void CheckForMessages()
@@ -148,6 +187,36 @@ class HomeAutoNetwork
 			return TheNetwork->write(writeHeader, _message, _datasize+2);
 		}
 	private:
+		void registerCommon(byte t, byte i, void *value, float delta, int size, const char *c)
+		{
+		  RF24NetworkHeader header(0);
+		  Serial.print("Registering channel:");
+		  header.type = MSG_REGISTER;
+		  regsub(&header, t, i, c);
+		  
+		  // first check to make sure the code is unique...
+		  for(int wid=0;wid<WatchedItems;wid++)
+		  {
+			if( WatchingItems[wid]->data.code == i )
+			{
+				Serial.print("ERROR: Already registered code ");
+				Serial.println( i );
+			}
+		  }
+		  
+		  WatchedItems++;
+		  HANWatcher **newwatches = new HANWatcher*[WatchedItems];
+		  for(int wid=0;wid<WatchedItems;wid++) newwatches[wid] = WatchingItems[wid];
+		  if( WatchedItems > 1 ) delete WatchingItems;
+		  WatchingItems = newwatches;
+		  HANWatcher *w = new HANWatcher();
+		  w->data.type = t;
+		  w->data.code = i;
+		  w->delta = delta;
+		  w->watch = value;
+		  memcpy(w->data.data, value, size);
+		  WatchingItems[WatchedItems-1] = w;
+		}
 		void regsub(RF24NetworkHeader *header, byte t, byte i, const char *c)
 		{
 		  message_subscribe mess;
@@ -162,5 +231,21 @@ class HomeAutoNetwork
 			delay(SUBS_RETRY_TIMEOUT);
 		  }
 			Serial.print("OK.\n"); 
+		}
+		
+		// Send a MSG_DATA to the controller, of specified size, reverting to originalvalue if not sent
+		bool sendDataMessage(HANWatcher *w, void *originalvalue, int size)
+		{
+			Serial.print("Value changed... transmitting...");
+			if(SendMessage(&w->data, size)) 
+			{
+				Serial.println("OK");
+			}
+			else
+			{
+				// copy old value back, so we try again...
+				memcpy(w->data.data, originalvalue, size);
+				Serial.println("FAIL");
+			}
 		}
 };
