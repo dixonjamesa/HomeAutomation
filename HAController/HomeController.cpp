@@ -63,7 +63,7 @@ class MessageMap
 	}
 	void RemoveAll(uint16_t nodeid)
 	{
-		for( std::list<mapitem *>::const_iterator iterator = all.begin(), end = all.end();
+		for( std::list<mapitem *>::iterator iterator = all.begin(), end = all.end();
 				iterator != end; /*deliberately nothing*/ )
 		{
 			mapitem *mi = *iterator;
@@ -248,7 +248,7 @@ int main(int argc, char** argv)
 					network.read(header, &message, sizeof(message));
 					sprintf(channel, "home/%s", message.channel);
 					mapitem *item = MyMessageMap->Match(header.from_node, message.code);
-					if( item != null )
+					if( item != NULL )
 					{
 						printf("Node %o trying to re-register code %d for channel %s, but already on channel %s; IGNORED", header.from_node, message.code, channel, item->channel);
 					}
