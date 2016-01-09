@@ -141,7 +141,7 @@ class HomeAutoNetwork
 					if( strcmp(cachedvalue, nowvalue) )
 					{
 						strcpy(item->data.data, nowvalue); // copy the new value into the message data
-						sendDataMessage(item, &cachedvalue, 4);
+						sendDataMessage(item, &cachedvalue, strlen(nowvalue)+1);
 					}
 				}
 				break;

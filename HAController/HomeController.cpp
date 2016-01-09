@@ -177,7 +177,7 @@ const unsigned long interval = 1000;
 					datamessage = (message_data){ item->code, DT_INT32, 0};
 					strcpy( datamessage.data, (char*)mosqmessage->payload);
 					datamessage.data[63] = 0; // ensure it's 0 terminated
-					datasize += strlen(datamessage.data);
+					datasize += strlen(datamessage.data)+1;
 				}
 				break;
 				default:

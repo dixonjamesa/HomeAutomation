@@ -100,12 +100,8 @@ void loop()
 
   doorState = digitalRead(switchPin);
   strcpy(gMessage, "FirstTest");
-  gTemperature += 0.5f;
+  gTemperature = 32.5f;
 
-  digitalWrite(led1Pin,HIGH);
-  delay(50);
-  digitalWrite(led1Pin,LOW);
-  Serial.println("loop");
   // Wait a bit before we start over again
   delay(interval);
 }
