@@ -13,6 +13,7 @@
 struct mapitem
 {
 	char *channel;
+	bool isreg;
 	uint16_t nodeid;
 	unsigned char type; // DT_xxx
 	unsigned char code; // id to send with message
@@ -25,7 +26,7 @@ class MessageMap
 	std::list<mapitem *> all;
 	
 	public:
-	void AddMap(const char *c, uint16_t ni, unsigned char tp, unsigned char code)
+	void AddMap(const char *c, uint16_t ni, unsigned char tp, unsigned char code, bool isreg /* register or subscribe*/)
 	{
 		mapitem *newitem = new mapitem();
 		newitem->channel = new char[strlen(c)+1];
@@ -33,16 +34,17 @@ class MessageMap
 		newitem->nodeid = ni;
 		newitem->type = tp;
 		newitem->code = code;
+		newitem->isreg = isreg;
 		all.push_front(newitem);
 	}
-	int MatchAll(const char *channel, std::list<mapitem *> *_list)
+	int MatchAll(const char *channel, std::list<mapitem *> *_list, bool isreg)
 	{
 		int count = 0;
 		for( std::list<mapitem *>::const_iterator iterator = all.begin(), end = all.end();
 				iterator != end; iterator++)
 		{
 			mapitem *mi = *iterator;
-			if(!strcmp(mi->channel, channel) )
+			if(!strcmp(mi->channel, channel) && mi->isreg == isreg)
 			{
 				_list->push_front(mi);
 				count++;
@@ -57,7 +59,7 @@ class MessageMap
 				iterator != end; iterator++)
 		{
 			mapitem *mi = *iterator;
-			if(!strcmp(mi->channel, channel) )
+			if(!strcmp(mi->channel, channel) && mi->isreg == isreg )
 			{
 				return mi;
 			}
@@ -130,88 +132,93 @@ const unsigned long interval = 1000;
 			printf("Message on %s: %s, ", mosqmessage->topic, (char *)mosqmessage->payload);
 			
 			std::list<mapitem *> matchlist;
-			int matches = MyMessageMap->MatchAll(mosqmessage->topic, &matchlist);
+			int matches = MyMessageMap->MatchAll(mosqmessage->topic, &matchlist, false);
 
 			if( matches == 0 )
 			{
 				printf("could not identify channel from: %s\n", mosqmessage->topic);
 				return;
 			}
-			printf("sending to node %i...", item->nodeid);
-			// Create message to send via RF24
-			message_data datamessage;
-			int datasize = 2; // header is 2 bytes
-			switch( item->type )
+			for(std::list<mapitem *>::const_iterator iterator = all.begin(), end = all.end();
+				iterator != end; iterator++)
 			{
-				case DT_BOOL:
+				mapitem *item = *iterator;
+				printf("sending to node %i...", item->nodeid);
+				// Create message to send via RF24
+				message_data datamessage;
+				int datasize = 2; // header is 2 bytes
+				switch( item->type )
 				{
-					bool state = true;
-					if (!strcmp((char*)mosqmessage->payload, "0"))
+					case DT_BOOL:
 					{
-						state = false;
+						bool state = true;
+						if (!strcmp((char*)mosqmessage->payload, "0"))
+						{
+							state = false;
+						}
+						else if (strcmp((char*)mosqmessage->payload, "1"))
+						{	// warn if data wasn't strictly 0 or 1
+							printf("Unknown bool state: %s\n", (char *)mosqmessage->payload);
+							return;
+						}
+						datamessage = (message_data){ item->code, DT_BOOL, state};
+						datasize += 1;
 					}
-					else if (strcmp((char*)mosqmessage->payload, "1"))
-					{	// warn if data wasn't strictly 0 or 1
-						printf("Unknown bool state: %s\n", (char *)mosqmessage->payload);
+					break;
+					case DT_BYTE:
+					{
+						datamessage = (message_data){ item->code, DT_BYTE, 0};
+						datamessage.data[0] = *((char *)mosqmessage->payload);
+						datasize += 1;
+					}
+					break;
+					case DT_INT16:
+					{
+						int value = atoi((char*)mosqmessage->payload);
+						datamessage = (message_data){ item->code, DT_INT16, 0};
+						memcpy( datamessage.data, &value, 2);
+						datasize += 2;
+					}
+					break;
+					case DT_INT32:
+					{
+						long value = atol((char*)mosqmessage->payload);
+						datamessage = (message_data){ item->code, DT_INT32, 0};
+						memcpy( datamessage.data, &value, 4);
+						datasize += 4;					
+					}
+					break;
+					case DT_FLOAT:
+					{
+						float value = atof((char*)mosqmessage->payload);
+						datamessage = (message_data){ item->code, DT_FLOAT, 0};
+						memcpy( datamessage.data, &value, 4);
+						datasize += 4;					
+					}
+					break;
+					case DT_TEXT:
+					{
+						datamessage = (message_data){ item->code, DT_INT32, 0};
+						strcpy( datamessage.data, (char*)mosqmessage->payload);
+						datamessage.data[63] = 0; // ensure it's 0 terminated
+						datasize += strlen(datamessage.data)+1;
+					}
+					break;
+					default:
+						printf("Unsupported data type: %i\n", item->type);
 						return;
-					}
-					datamessage = (message_data){ item->code, DT_BOOL, state};
-					datasize += 1;
 				}
-				break;
-				case DT_BYTE:
+				// Send message on RF24 network
+				RF24NetworkHeader header(item->nodeid);
+				header.type = MSG_DATA;
+				if (network.write(header, &datamessage, datasize))
 				{
-					datamessage = (message_data){ item->code, DT_BYTE, 0};
-					datamessage.data[0] = *((char *)mosqmessage->payload);
-					datasize += 1;
+					printf("Message sent\n");
 				}
-				break;
-				case DT_INT16:
+				else
 				{
-					int value = atoi((char*)mosqmessage->payload);
-					datamessage = (message_data){ item->code, DT_INT16, 0};
-					memcpy( datamessage.data, &value, 2);
-					datasize += 2;
+					printf("Could not send message\n");
 				}
-				break;
-				case DT_INT32:
-				{
-					long value = atol((char*)mosqmessage->payload);
-					datamessage = (message_data){ item->code, DT_INT32, 0};
-					memcpy( datamessage.data, &value, 4);
-					datasize += 4;					
-				}
-				break;
-				case DT_FLOAT:
-				{
-					float value = atof((char*)mosqmessage->payload);
-					datamessage = (message_data){ item->code, DT_FLOAT, 0};
-					memcpy( datamessage.data, &value, 4);
-					datasize += 4;					
-				}
-				break;
-				case DT_TEXT:
-				{
-					datamessage = (message_data){ item->code, DT_INT32, 0};
-					strcpy( datamessage.data, (char*)mosqmessage->payload);
-					datamessage.data[63] = 0; // ensure it's 0 terminated
-					datasize += strlen(datamessage.data)+1;
-				}
-				break;
-				default:
-					printf("Unsupported data type: %i\n", item->type);
-					return;
-			}
-			// Send message on RF24 network
-			RF24NetworkHeader header(item->nodeid);
-			header.type = MSG_DATA;
-			if (network.write(header, &datamessage, datasize))
-			{
-				printf("Message sent\n");
-			}
-			else
-			{
-				printf("Could not send message\n");
 			}
 		}
  };
@@ -265,14 +272,14 @@ int main(int argc, char** argv)
 					message_subscribe message;
 					network.read(header, &message, sizeof(message));
 					sprintf(channel, "home/%s", message.channel);
-					mapitem *item = MyMessageMap->Match(header.from_node, message.code);
+					mapitem *item = MyMessageMap->Match(header.from_node, message.code, true);
 					if( item != NULL )
 					{
 						printf("Node %o trying to re-register code %d for channel %s, but already on channel %s; IGNORED", header.from_node, message.code, channel, item->channel);
 					}
 					else
 					{
-						MyMessageMap->AddMap(channel,header.from_node, message.type, message.code);
+						MyMessageMap->AddMap(channel,header.from_node, message.type, message.code, true);
 						printf("Node %o registered channel %s\n", header.from_node, channel);				
 					}
 				}
@@ -283,7 +290,7 @@ int main(int argc, char** argv)
 					message_subscribe message;
 					network.read(header, &message, sizeof(message));
 					sprintf(channel, "home/%s", message.channel);
-					MyMessageMap->AddMap(channel,header.from_node, message.type, message.code);
+					MyMessageMap->AddMap(channel,header.from_node, message.type, message.code, false);
 					printf("Node %o subscribed to channel %s\n", header.from_node, channel);				
 					mosq.subscribe(0, channel);
 				}
@@ -293,7 +300,7 @@ int main(int argc, char** argv)
 					message_data message;
 					int datasize = network.read(header, &message, sizeof(message));
 					printf("Node %o sent code %d (%d bytes) ", header.from_node, message.code, datasize);
-					mapitem *item = MyMessageMap->Match(header.from_node, message.code);
+					mapitem *item = MyMessageMap->Match(header.from_node, message.code, true);
 					if( item == NULL )
 					{
 						printf("\nFailed to match item... sending UNKNOWN back to node %o...", header.from_node);
