@@ -1,4 +1,4 @@
-#define SUBS_RETRY_TIMEOUT 1000
+#define SUBS_RETRY_TIMEOUT 5000
 
 struct HANWatcher
 {

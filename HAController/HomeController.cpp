@@ -35,6 +35,22 @@ class MessageMap
 		newitem->code = code;
 		all.push_front(newitem);
 	}
+	int MatchAll(const char *channel, std::list<mapitem *> *_list)
+	{
+		int count = 0;
+		for( std::list<mapitem *>::const_iterator iterator = all.begin(), end = all.end();
+				iterator != end; iterator++)
+		{
+			mapitem *mi = *iterator;
+			if(!strcmp(mi->channel, channel) )
+			{
+				_list->push_front(mi);
+				count++;
+			}
+		}
+		return count;
+		
+	}
 	mapitem *Match(const char *channel)
 	{
 		for( std::list<mapitem *>::const_iterator iterator = all.begin(), end = all.end();
@@ -112,9 +128,11 @@ const unsigned long interval = 1000;
 		{
 			// Message received on a channel we subscribe to
 			printf("Message on %s: %s, ", mosqmessage->topic, (char *)mosqmessage->payload);
-			mapitem *item = MyMessageMap->Match(mosqmessage->topic);
+			
+			std::list<mapitem *> matchlist;
+			int matches = MyMessageMap->MatchAll(mosqmessage->topic, &matchlist);
 
-			if( item == NULL )
+			if( matches == 0 )
 			{
 				printf("could not identify channel from: %s\n", mosqmessage->topic);
 				return;

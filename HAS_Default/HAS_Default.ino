@@ -11,8 +11,8 @@ bool doorState = false;
 byte led1Pin = 2;
 byte led2Pin = 3;
 
-// Radio with CE & CSN connected to pins 7 & 8
-RF24 radio(7, 8);
+// Radio with CE & CSN connected to pins 9 & 10
+RF24 radio(9, 10);
 RF24Network RFNetwork(radio);
 
 // Constants that identify this node and the node to send data to
@@ -24,8 +24,8 @@ int globalcount = 0;
 
 char gMessage[64] = "";
 
-// Time between packets (in ms)
-const unsigned long interval = 1000;  // every sec
+// Time between checks (in ms)
+const unsigned long interval = 500;
 
 class MyHANet: public HomeAutoNetwork
 {
