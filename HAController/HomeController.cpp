@@ -27,7 +27,7 @@ struct mapitem
 class MessageMap
 {
 	std::list<mapitem *> all;
-	
+
 	public:
 	void AddMap(const char *c, uint16_t ni, unsigned char tp, unsigned char code, bool isreg /* register or subscribe*/)
 	{
@@ -54,9 +54,9 @@ class MessageMap
 			}
 		}
 		return count;
-		
+
 	}
-	mapitem *Match(const char *channel)
+	mapitem *Match(const char *channel, bool isreg)
 	{
 		for( std::list<mapitem *>::const_iterator iterator = all.begin(), end = all.end();
 				iterator != end; iterator++)
@@ -69,18 +69,18 @@ class MessageMap
 		}
 		return NULL;
 	}
-	mapitem *Match(uint16_t nodeid, unsigned char code)
+	mapitem *Match(uint16_t nodeid, unsigned char code, bool isreg)
 	{
 		for( std::list<mapitem *>::const_iterator iterator = all.begin(), end = all.end();
 				iterator != end; iterator++)
 		{
 			mapitem *mi = *iterator;
-			if(mi->nodeid == nodeid && mi->code == code )
+			if(mi->nodeid == nodeid && mi->code == code && mi->isreg == isreg )
 			{
 				return mi;
 			}
 		}
-		return NULL;	
+		return NULL;
 	}
 	void RemoveAll(uint16_t nodeid)
 	{
@@ -97,16 +97,6 @@ class MessageMap
 				iterator++;
 			}
 		}
-	}
-	bool ContainsKey(const char *channel)
-	{
-		return Match(channel)!=NULL;
-	}
-	uint16_t Node(const char *channel)
-	{
-		mapitem *mitem = Match(channel);
-		if( mitem != NULL ) return mitem->nodeid;
-		return 0; // 0 is the master, and not a valid node in this circumstance
 	}
 };
 
