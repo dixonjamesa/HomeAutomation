@@ -9,6 +9,9 @@
 #include <list>
 #include "HACommon.h"
 
+FILE *logfile;
+char strbuffer[1024];
+char tbuffer[512];
 
 struct mapitem
 {
@@ -116,114 +119,160 @@ RF24Network network(radio);
 // Time between checking for packets (in ms)
 const unsigned long interval = 1000;
 
+// used to store queued messages:
+struct qMessage
+{
+	int nodeid;
+	int datasize;
+	message_data message;
+};
+
 // Mosquitto class
- class MyMosquitto : public mosqpp::mosquittopp 
- {
+class MyMosquitto : public mosqpp::mosquittopp 
+{
+	private:
+	std::list<qMessage> queuedMessages;
+
 	public:
-		MyMosquitto() : mosqpp::mosquittopp ("PiBrain") { mosqpp::lib_init(); }
+	MyMosquitto() : mosqpp::mosquittopp ("PiBrain") { mosqpp::lib_init(); }
 
-		virtual void on_connect (int rc) { printf("Connected to Mosquitto\n"); }
+	virtual void on_connect (int rc) { fprintf(logfile, "Connected to Mosquitto\n"); }
 
-		virtual void on_disconnect () { printf("Disconnected\n"); }
+	virtual void on_disconnect () { fprintf(logfile, "Disconnected\n"); }
 
-		virtual void on_message(const struct mosquitto_message* mosqmessage) 
+	virtual void on_message(const struct mosquitto_message* mosqmessage) 
+	{
+		// Message received on a channel we subscribe to
+		sprintf(strbuffer, "Message on %s: %s, ", mosqmessage->topic, (char *)mosqmessage->payload);
+		
+		std::list<mapitem *> matchlist;
+		int matches = MyMessageMap->MatchAll(mosqmessage->topic, &matchlist, false);
+
+		if( matches == 0 )
 		{
-			// Message received on a channel we subscribe to
-			printf("Message on %s: %s, ", mosqmessage->topic, (char *)mosqmessage->payload);
-			
-			std::list<mapitem *> matchlist;
-			int matches = MyMessageMap->MatchAll(mosqmessage->topic, &matchlist, false);
-
-			if( matches == 0 )
+			sprintf(tbuffer, "could not identify channel from: %s\n", mosqmessage->topic);
+			strcat(strbuffer, tbuffer);
+			return;
+		}
+		for(std::list<mapitem *>::const_iterator iterator = all.begin(), end = all.end();
+			iterator != end; iterator++)
+		{
+			mapitem *item = *iterator;
+			sprintf(tbuffer, "sending to node %i...", item->nodeid);
+			strcat(strbuffer, tbuffer);
+			// Create message to send via RF24
+			message_data datamessage;
+			int datasize = 2; // header is 2 bytes
+			switch( item->type )
 			{
-				printf("could not identify channel from: %s\n", mosqmessage->topic);
-				return;
-			}
-			for(std::list<mapitem *>::const_iterator iterator = all.begin(), end = all.end();
-				iterator != end; iterator++)
-			{
-				mapitem *item = *iterator;
-				printf("sending to node %i...", item->nodeid);
-				// Create message to send via RF24
-				message_data datamessage;
-				int datasize = 2; // header is 2 bytes
-				switch( item->type )
+				case DT_BOOL:
 				{
-					case DT_BOOL:
+					bool state = true;
+					if (!strcmp((char*)mosqmessage->payload, "0"))
 					{
-						bool state = true;
-						if (!strcmp((char*)mosqmessage->payload, "0"))
-						{
-							state = false;
-						}
-						else if (strcmp((char*)mosqmessage->payload, "1"))
-						{	// warn if data wasn't strictly 0 or 1
-							printf("Unknown bool state: %s\n", (char *)mosqmessage->payload);
-							return;
-						}
-						datamessage = (message_data){ item->code, DT_BOOL, state};
-						datasize += 1;
+						state = false;
 					}
-					break;
-					case DT_BYTE:
-					{
-						datamessage = (message_data){ item->code, DT_BYTE, 0};
-						datamessage.data[0] = *((char *)mosqmessage->payload);
-						datasize += 1;
-					}
-					break;
-					case DT_INT16:
-					{
-						int value = atoi((char*)mosqmessage->payload);
-						datamessage = (message_data){ item->code, DT_INT16, 0};
-						memcpy( datamessage.data, &value, 2);
-						datasize += 2;
-					}
-					break;
-					case DT_INT32:
-					{
-						long value = atol((char*)mosqmessage->payload);
-						datamessage = (message_data){ item->code, DT_INT32, 0};
-						memcpy( datamessage.data, &value, 4);
-						datasize += 4;					
-					}
-					break;
-					case DT_FLOAT:
-					{
-						float value = atof((char*)mosqmessage->payload);
-						datamessage = (message_data){ item->code, DT_FLOAT, 0};
-						memcpy( datamessage.data, &value, 4);
-						datasize += 4;					
-					}
-					break;
-					case DT_TEXT:
-					{
-						datamessage = (message_data){ item->code, DT_INT32, 0};
-						strcpy( datamessage.data, (char*)mosqmessage->payload);
-						datamessage.data[63] = 0; // ensure it's 0 terminated
-						datasize += strlen(datamessage.data)+1;
-					}
-					break;
-					default:
-						printf("Unsupported data type: %i\n", item->type);
+					else if (strcmp((char*)mosqmessage->payload, "1"))
+					{	// warn if data wasn't strictly 0 or 1
+						sprintf(tbuffer, "Unknown bool state: %s\n", (char *)mosqmessage->payload);
+						strcat(strbuffer, tbuffer);
+						if( logfile) fprintf(logfile, strbuffer);
 						return;
+					}
+					datamessage = (message_data){ item->code, DT_BOOL, state};
+					datasize += 1;
 				}
-				// Send message on RF24 network
-				RF24NetworkHeader header(item->nodeid);
-				header.type = MSG_DATA;
-				if (network.write(header, &datamessage, datasize))
+				break;
+				case DT_BYTE:
 				{
-					printf("Message sent\n");
+					datamessage = (message_data){ item->code, DT_BYTE, 0};
+					datamessage.data[0] = *((char *)mosqmessage->payload);
+					datasize += 1;
 				}
-				else
+				break;
+				case DT_INT16:
 				{
-					printf("Could not send message\n");
+					int value = atoi((char*)mosqmessage->payload);
+					datamessage = (message_data){ item->code, DT_INT16, 0};
+					memcpy( datamessage.data, &value, 2);
+					datasize += 2;
 				}
+				break;
+				case DT_INT32:
+				{
+					long value = atol((char*)mosqmessage->payload);
+					datamessage = (message_data){ item->code, DT_INT32, 0};
+					memcpy( datamessage.data, &value, 4);
+					datasize += 4;					
+				}
+				break;
+				case DT_FLOAT:
+				{
+					float value = atof((char*)mosqmessage->payload);
+					datamessage = (message_data){ item->code, DT_FLOAT, 0};
+					memcpy( datamessage.data, &value, 4);
+					datasize += 4;					
+				}
+				break;
+				case DT_TEXT:
+				{
+					datamessage = (message_data){ item->code, DT_INT32, 0};
+					strcpy( datamessage.data, (char*)mosqmessage->payload);
+					datamessage.data[63] = 0; // ensure it's 0 terminated
+					datasize += strlen(datamessage.data)+1;
+				}
+				break;
+				default:
+					sprintf(tbuffer, "Unsupported data type: %i\n", item->type);
+					strcat(strbuffer, tbuffer);
+					if( logfile) fprintf(logfile, strbuffer);
+					return;
+			}
+			// Send message on RF24 network
+			RF24NetworkHeader header(item->nodeid);
+			header.type = MSG_DATA;
+			if (network.write(header, &datamessage, datasize))
+			{
+				strcat(strbuffer, "Message sent\n");
+			}
+			else
+			{
+				strcat(strbuffer, "Could not send message\n");
+				
+				// NEED TO KEEP TRYING!!
+				// put a copy of the message onto a queue to try again later...
+				qMessage *dcopy = new qMessage();
+				dcopy.nodeid = item->nodeid;
+				dcopy.datasize = datasize;
+				memcpy( &dcopy.message, &datamessage, sizeof(datamessage));
+				queuedMessages.push_front( dcopy );
 			}
 		}
- };
+		if( logfile) fprintf(logfile, strbuffer);
+	}
+ 	void ProcessQueue()
+	{
+		for( std::list<qMessage *>::iterator iterator = queuedMessages.begin(), end = queuedMessages.end();
+				iterator != end; /*deliberately nothing*/ )
+		{
+			qMessage *mess = *iterator;
+			RF24NetworkHeader header(mess->nodeid);
+			header.type = MSG_DATA;
+			if (network.write(header, &mess->message, mess->datasize))
+			{
+				if(logfile) fprintf(logfile, "Queued message sent\n");
+				iterator = queuedMessages.erase(iterator);
+			}
+			else
+			{
+				// status quo...
+			}
+			iterator++;
+		}
+	}
+};
 
- MyMosquitto mosq;
+MyMosquitto mosquittoBroker;
 
 int main(int argc, char** argv)
 {
@@ -239,9 +288,20 @@ int main(int argc, char** argv)
 
 	network.update();
 
-	mosq.connect("127.0.0.1");
-
-	printf("Listening...\n");
+	mosquittoBroker.connect("127.0.0.1");
+	logfile = fopen("HALog", "w");
+	if (logfile)
+	{
+		//----- FILE EXISTS -----
+		printf("Logging started");
+		fprintf(logfile,"Logging started");
+	}
+	else
+	{
+		//----- FILE NOT FOUND -----
+		printf("failed to start logging\n");
+	}
+	if(logfile) fprintf(logfile, "Listening...\n");
 	while (true)
 	{
 		// Get the latest network info
@@ -252,7 +312,7 @@ int main(int argc, char** argv)
 		// and continue it as long as there is more data to read
 		while ( network.available() )
 		{
-			printf("MESSAGE:");				
+			sprintf(strbuffer, "MESSAGE:");				
 			RF24NetworkHeader header;
 			// Have a peek at the data to see the header type
 			network.peek(header);
@@ -261,7 +321,8 @@ int main(int argc, char** argv)
 				case MSG_AWAKE:
 				{
 					network.read(header, NULL, 0);
-					printf("AWAKE from node %o\n", header.from_node);
+					sprintf(tbuffer, "AWAKE from node %o\n", header.from_node);
+					strcat(strbuffer, tbuffer);
 					// remove any messages stored previously for this node...
 					MyMessageMap->RemoveAll(header.from_node);
 				}
@@ -275,12 +336,14 @@ int main(int argc, char** argv)
 					mapitem *item = MyMessageMap->Match(header.from_node, message.code, true);
 					if( item != NULL )
 					{
-						printf("Node %o trying to re-register code %d for channel %s, but already on channel %s; IGNORED", header.from_node, message.code, channel, item->channel);
+						sprintf(tbuffer, "Node %o trying to re-register code %d for channel %s, but already on channel %s; IGNORED", header.from_node, message.code, channel, item->channel);
+						strcat(strbuffer, tbuffer);
 					}
 					else
 					{
 						MyMessageMap->AddMap(channel,header.from_node, message.type, message.code, true);
-						printf("Node %o registered channel %s\n", header.from_node, channel);				
+						sprintf(tbuffer, "Node %o registered channel %s\n", header.from_node, channel);				
+						strcat(strbuffer, tbuffer);
 					}
 				}
 				break;
@@ -291,29 +354,32 @@ int main(int argc, char** argv)
 					network.read(header, &message, sizeof(message));
 					sprintf(channel, "home/%s", message.channel);
 					MyMessageMap->AddMap(channel,header.from_node, message.type, message.code, false);
-					printf("Node %o subscribed to channel %s\n", header.from_node, channel);				
-					mosq.subscribe(0, channel);
+					sprintf(tbuffer, "Node %o subscribed to channel %s\n", header.from_node, channel);				
+					strcat(strbuffer, tbuffer);
+					mosquittoBroker.subscribe(0, channel);
 				}
 				break;
 				case MSG_DATA:
 				{
 					message_data message;
 					int datasize = network.read(header, &message, sizeof(message));
-					printf("Node %o sent code %d (%d bytes) ", header.from_node, message.code, datasize);
+					sprintf(tbuffer, "Node %o sent code %d (%d bytes) ", header.from_node, message.code, datasize);
+					strcat(strbuffer, tbuffer);
 					mapitem *item = MyMessageMap->Match(header.from_node, message.code, true);
 					if( item == NULL )
 					{
-						printf("\nFailed to match item... sending UNKNOWN back to node %o...", header.from_node);
+						sprintf(tbuffer, "\nFailed to match item... sending UNKNOWN back to node %o...", header.from_node);
+						strcat(strbuffer, tbuffer);
 						// send MSG_UNKNOWN back to this node, with the same message data...
 						RF24NetworkHeader txheader(header.from_node);
 						txheader.type = MSG_UNKNOWN;
 						if (network.write(txheader, &message, datasize))
 						{
-							printf("OK\n");
+							strcat(strbuffer, "OK\n");
 						}
 						else
 						{
-							printf("FAIL\n");
+							strcat(strbuffer, "FAIL\n");
 						}
 						
 					}
@@ -325,7 +391,8 @@ int main(int argc, char** argv)
 							case DT_BOOL:
 							{
 								bool result = message.data[0];
-								printf(" = %s (BOOL %d)\n", item->channel, result);
+								sprintf(tbuffer, " = %s (BOOL %d)\n", item->channel, result);
+								strcat(strbuffer, tbuffer);
 								sprintf (buffer, "mosquitto_pub -t %s -m \"%d\"", item->channel, result);
 								system(buffer);
 							}
@@ -334,7 +401,8 @@ int main(int argc, char** argv)
 							{
 								float result;
 								memcpy(&result, message.data, 4);
-								printf(" = %s (FLOAT %f)\n", item->channel, result);
+								sprintf(tbuffer, " = %s (FLOAT %f)\n", item->channel, result);
+								strcat(strbuffer, tbuffer);
 								sprintf (buffer, "mosquitto_pub -t %s -m \"%f\"", item->channel, result);
 								system(buffer);
 							}
@@ -343,7 +411,8 @@ int main(int argc, char** argv)
 							{
 								char result;
 								result = *message.data;
-								printf(" = %s (BYTE %c)\n", item->channel, result);
+								sprintf(tbuffer, " = %s (BYTE %c)\n", item->channel, result);
+								strcat(strbuffer, tbuffer);
 								sprintf (buffer, "mosquitto_pub -t %s -m \"%c\"", item->channel, result);
 								system(buffer);
 							}
@@ -352,7 +421,8 @@ int main(int argc, char** argv)
 							{
 								short result;
 								memcpy(&result, message.data, 2);
-								printf(" = %s (INT16 %d)\n", item->channel, result);
+								sprintf(tbuffer, " = %s (INT16 %d)\n", item->channel, result);
+								strcat(strbuffer, tbuffer);
 								sprintf (buffer, "mosquitto_pub -t %s -m \"%d\"", item->channel, result);
 								system(buffer);
 							}
@@ -361,18 +431,21 @@ int main(int argc, char** argv)
 							{
 								long result;
 								memcpy(&result, message.data, 4);
-								printf(" = %s (INT32 %ld)\n", item->channel, result);
+								sprintf(tbuffer, " = %s (INT32 %ld)\n", item->channel, result);
+								strcat(strbuffer, tbuffer);
 								sprintf (buffer, "mosquitto_pub -t %s -m \"%ld\"", item->channel, result);
 								system(buffer);
 							}
 							break;
 							case DT_TEXT:
-								printf(" = %s (TEXT %s)\n", item->channel, (char *)message.data);
+								sprintf(tbuffer, " = %s (TEXT %s)\n", item->channel, (char *)message.data);
+								strcat(strbuffer, tbuffer);
 								sprintf (buffer, "mosquitto_pub -t %s -m \"%s\"", item->channel, (char *)message.data);
 								system(buffer);
 								break;
 							default:
-								printf("(unrecognised data type, %d)", message.type );
+								sprintf(tbuffer, "(unrecognised data type, %d)", message.type );
+								strcat(strbuffer, tbuffer);
 								break;
 						}
 					}
@@ -383,18 +456,23 @@ int main(int argc, char** argv)
 					// This is not a type we recognize	
 					message_data message;
 					network.read(header, &message, sizeof(message));
-					printf("Unknown message %d received from node %i\n", header.type,  header.from_node);				
+					sprintf(tbuffer, "Unknown message %d received from node %i\n", header.type,  header.from_node);				
+					strcat(strbuffer, tbuffer);
 				}
 				break;
 			}
+			if( logfile) fprintf(logfile, strbuffer);
 		}
 
 		// Check for messages on our subscribed channels
-		mosq.loop();
+		mosquittoBroker.loop();
 
 		delay(interval);
 	}
 
+	fclose(logfile);
+
 	// last thing we do before we end things
 	return 0;
 }
+

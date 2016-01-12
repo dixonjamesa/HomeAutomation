@@ -1,4 +1,5 @@
-#define SUBS_RETRY_TIMEOUT 5000
+#define WAKE_RETRY_TIMEOUT 5000
+#define SUBS_RETRY_TIMEOUT 500
 
 struct HANWatcher
 {
@@ -30,7 +31,7 @@ class HomeAutoNetwork
 		  while(!TheNetwork->write(writeHeader, NULL, 0)) 
 		  {
 			Serial.print("."); 
-			delay(SUBS_RETRY_TIMEOUT);
+			delay(WAKE_RETRY_TIMEOUT);
 		  }
 		  Serial.print("OK.\n"); 
 		}
