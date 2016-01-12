@@ -121,7 +121,7 @@ struct qMessage
 class MyMosquitto : public mosqpp::mosquittopp 
 {
 	private:
-	std::list<qMessage> queuedMessages;
+	std::list<qMessage *> queuedMessages;
 
 	public:
 	MyMosquitto() : mosqpp::mosquittopp ("PiBrain") { mosqpp::lib_init(); }
@@ -144,7 +144,7 @@ class MyMosquitto : public mosqpp::mosquittopp
 			strcat(strbuffer, tbuffer);
 			return;
 		}
-		for(std::list<mapitem *>::const_iterator iterator = all.begin(), end = all.end();
+		for(std::list<mapitem *>::const_iterator iterator = matchlist.begin(), end = matchlist.end();
 			iterator != end; iterator++)
 		{
 			mapitem *item = *iterator;
@@ -232,9 +232,9 @@ class MyMosquitto : public mosqpp::mosquittopp
 				// NEED TO KEEP TRYING!!
 				// put a copy of the message onto a queue to try again later...
 				qMessage *dcopy = new qMessage();
-				dcopy.nodeid = item->nodeid;
-				dcopy.datasize = datasize;
-				memcpy( &dcopy.message, &datamessage, sizeof(datamessage));
+				dcopy->nodeid = item->nodeid;
+				dcopy->datasize = datasize;
+				memcpy( &dcopy->message, &datamessage, sizeof(datamessage));
 				queuedMessages.push_front( dcopy );
 			}
 		}
@@ -250,8 +250,9 @@ class MyMosquitto : public mosqpp::mosquittopp
 			header.type = MSG_DATA;
 			if (network.write(header, &mess->message, mess->datasize))
 			{
-				if(logfile) fprintf(logfile, "Queued message sent\n");
+				if(logfile) fprintf(logfile, "Queued message sent to node %d\n", mess->nodeid);
 				iterator = queuedMessages.erase(iterator);
+				delete mess;
 			}
 			else
 			{
@@ -279,12 +280,13 @@ int main(int argc, char** argv)
 	network.update();
 
 	mosquittoBroker.connect("127.0.0.1");
+	printf("Starting log\n");
 	logfile = fopen("HALog", "w");
 	if (logfile)
 	{
 		//----- FILE EXISTS -----
-		printf("Logging started");
-		fprintf(logfile,"Logging started");
+		printf("Logging started\n");
+		fprintf(logfile,"Logging started\n");
 	}
 	else
 	{
@@ -296,6 +298,7 @@ int main(int argc, char** argv)
 	{
 		// Get the latest network info
 		network.update();
+		mosquittoBroker.ProcessQueue();
 		//printf(".\n");
 		
 		// Enter this loop if there is data available to be read,
@@ -326,13 +329,13 @@ int main(int argc, char** argv)
 					mapitem *item = MyMessageMap->Match(header.from_node, message.code, true);
 					if( item != NULL )
 					{
-						sprintf(tbuffer, "Node %o trying to re-register code %d for channel %s, but already on channel %s; IGNORED", header.from_node, message.code, channel, item->channel);
+						sprintf(tbuffer, "Node %o trying to re-register code %d for channel %s, but already on channel %s with code %d; IGNORED\n", header.from_node, message.code, channel, item->channel, item->code);
 						strcat(strbuffer, tbuffer);
 					}
 					else
 					{
 						MyMessageMap->AddMap(channel,header.from_node, message.type, message.code, true);
-						sprintf(tbuffer, "Node %o registered channel %s\n", header.from_node, channel);				
+						sprintf(tbuffer, "Node %o registered channel %s with code %d\n", header.from_node, channel, message.code);
 						strcat(strbuffer, tbuffer);
 					}
 				}
@@ -343,10 +346,19 @@ int main(int argc, char** argv)
 					message_subscribe message;
 					network.read(header, &message, sizeof(message));
 					sprintf(channel, "home/%s", message.channel);
-					MyMessageMap->AddMap(channel,header.from_node, message.type, message.code, false);
-					sprintf(tbuffer, "Node %o subscribed to channel %s\n", header.from_node, channel);				
-					strcat(strbuffer, tbuffer);
-					mosquittoBroker.subscribe(0, channel);
+					mapitem *item = MyMessageMap->Match(header.from_node, message.code, false);
+					if( item != NULL )
+					{
+						sprintf(tbuffer, "Node %o trying to re-subscribe code %d for channel %s, but already on channel %s with code %d; IGNORED\n", header.from_node, message.code, channel, item->channel, item->code);
+						strcat(strbuffer, tbuffer);
+					}
+					else
+					{
+						MyMessageMap->AddMap(channel,header.from_node, message.type, message.code, false);
+						sprintf(tbuffer, "Node %o subscribed to channel %s using code %d\n", header.from_node, channel, message.code);				
+						strcat(strbuffer, tbuffer);
+						mosquittoBroker.subscribe(0, channel);
+					}
 				}
 				break;
 				case MSG_DATA:
@@ -458,6 +470,7 @@ int main(int argc, char** argv)
 		mosquittoBroker.loop();
 
 		delay(interval);
+		if(logfile) fflush(logfile);
 	}
 
 	fclose(logfile);
