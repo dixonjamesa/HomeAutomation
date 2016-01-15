@@ -107,7 +107,9 @@ RF24 radio(RPI_BPLUS_GPIO_J8_15, RPI_BPLUS_GPIO_J8_24, BCM2835_SPI_SPEED_8MHZ);
 RF24Network network(radio);
 
 // Time between checking for packets (in ms)
-const unsigned long interval = 1000;
+const unsigned long interval = 100;
+// Timer used to determine when to check nodes for still being present in network
+unsigned long timespan=0; 
 
 // used to store queued messages:
 struct qMessage
@@ -265,6 +267,95 @@ class MyMosquitto : public mosqpp::mosquittopp
 
 MyMosquitto mosquittoBroker;
 
+// SensorList class
+// track what sensor nodes have woke up
+class SensorList
+{
+	private:
+		struct SensorNodeData
+		{
+			int nodeid;
+			int strikes;
+		};
+		
+		std::list<SensorNodeData *> NodeList;
+	public:
+		void AddSensor(int nodeid)
+		{
+			for( std::list<int>::const_iterator iterator = NodeList.begin(), end = NodeList.end();
+					iterator != end; iterator++)
+			{
+				int ni = *iterator;
+				if(ni == nodeid )
+				{
+					// already in the list
+					MyMessageMap->RemoveAll(nodeid);
+					return;
+				}
+			}
+			SensorNodeData *snd = new SensorNodeData();
+			snd->nodeid = nodeid;
+			snd->strikes = 0;
+			NodeList.push_front(snd);
+		}
+		void RemoveSensor(int nodeid)
+		{
+			SensorNodeData *snd;
+			for( std::list<int>::const_iterator iterator = NodeList.begin(), end = NodeList.end();
+					iterator != end; iterator++)
+			{
+				snd = *iterator;
+				if(snd->nodeid == nodeid )
+				{
+					MyMessageMap->RemoveAll(nodeid);
+					NodeList.erase(iterator);
+					delete snd;
+					return;
+				}
+			}
+		}
+		// go round all the sensors seeing if they respond...
+		void CheckSensors()
+		{
+			SensorNodeData *snd;
+			for( std::list<int>::const_iterator iterator = NodeList.begin(), end = NodeList.end();
+					iterator != end; /* deliberately nothing */)
+			{
+				snd = *iterator;
+				// Send message on RF24 network
+				RF24NetworkHeader header(item->nodeid);
+				header.type = MSG_PING;
+				if (!network.write(header, NULL, 0) )
+				{
+					if( ++snd->strikes > 10 )
+					{
+						// looks like this node is AWOL
+						if(logfile) fprintf(logfile, "Sensor node %d unresponsive - 10 strikes. Removing\n", snd->nodeid);
+						MyMessageMap->RemoveAll(snd->nodeid);
+						iterator = NodeList.erase(iterator);
+						delete snd;						
+					}
+					else
+					{
+						if(logfile) fprintf(logfile, "lost sensor node %d, strike %d\n", snd->nodeid, snd->strikes);
+						iterator++;
+					}
+				}
+				else
+				{
+					if( snd->strikes > 0 )
+					{
+						if(logfile) fprintf(logfile, "recovered sensor node %d\n", snd->nodeid);
+						snd->strikes = 0;
+					}
+					iterator++;
+				}
+			}
+		}
+};
+
+SensorList *MySensors;
+
 int main(int argc, char** argv)
 {
 	// Initialize all radio related modules
@@ -273,6 +364,7 @@ int main(int argc, char** argv)
 	network.begin(90, 0); // we are the master, node 0
 	
 	MyMessageMap = new MessageMap();
+	MySensors = new SensorList();
 
 	// Print some radio details (for debug purposes)
 	radio.printDetails();
@@ -313,11 +405,15 @@ int main(int argc, char** argv)
 			{
 				case MSG_AWAKE:
 				{
-					network.read(header, NULL, 0);
-					sprintf(tbuffer, "AWAKE from node %o\n", header.from_node);
+					message_data receipt;
+					network.read(header, &receipt, sizeof(receipt));
+					sprintf(tbuffer, "AWAKE from node %o, channel root \n", header.from_node, receipt.data);
 					strcat(strbuffer, tbuffer);
 					// remove any messages stored previously for this node...
-					MyMessageMap->RemoveAll(header.from_node);
+					MySensors->AddSensor(header.from_node);
+					char buffer[128];
+					sprintf (buffer, "mosquitto_pub -t %s\\wake -m 1", receipt.data);
+					system(buffer);
 				}
 				break;
 				case MSG_REGISTER:
@@ -471,6 +567,13 @@ int main(int argc, char** argv)
 
 		delay(interval);
 		if(logfile) fflush(logfile);
+		
+		// Periodically see if all the sensors we are aware of are still up and responding...
+		timespan += interval;
+		if( timespan > 10000 )
+		{
+			MySensors->CheckSensors();
+		}
 	}
 
 	fclose(logfile);

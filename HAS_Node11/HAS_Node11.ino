@@ -10,8 +10,8 @@
 const bool senseTx = 3;
 const bool senseRx = 4;
 const bool senseFb = 8;
-const bool RFCE = 9;
-const bool RFCSN = 10;
+const bool RFCE = 9; // transmitter
+const bool RFCSN = 10; // transmitter
 const byte outputPin = 2;
 
 // Constants that identify this node and the node to send data to
@@ -21,8 +21,9 @@ const uint16_t control_node = 0;
 // the touch sensor
 CapacitiveSensor CSensor = CapacitiveSensor(senseTx,senseRx);        // 10 megohm resistor between pins 4 & 2, pin 2 is sensor pin, add wire, foil
 
-// Light relay pin
-bool lightState;
+// Switch states
+bool latchState=false;
+bool toggleState=false;
 
 // Radio with CE & CSN pins
 RF24 radio(RFCE, RFCSN);
@@ -37,25 +38,63 @@ class MyHANet: public HomeAutoNetwork
   MyHANet(RF24Network *_net):HomeAutoNetwork(_net) {}
   virtual void OnMessage(uint16_t from_node, message_data *message)
   {
-      bool state = (bool)message->data[0];
-      Serial.print("Data received from node ");
-      Serial.print(from_node);
-      // Check value and change the pin...
-      Serial.print(" {Id: ");
-      Serial.print(message->code);
-      Serial.print(", Value: ");
-      Serial.print(state);
-      Serial.println("}");
-      if( message->code == outputPin ) lightState = state; // store the state
-      if (state)
-      {
-        digitalWrite(message->code, HIGH);
-      } 
-      else 
-      {
-        digitalWrite(message->code, LOW);
-      }
+    switch( message->code )
+    {
+      case 201: // monitor channel:
+        // attach our output pin to this channel...
+        Serial.print("Been told to monitor channel ");
+        Serial.println(message->data);
+        SubscribeChannel( DT_BOOL, outputPin, message->data );
+      break;
+      case 202: // reset
+        // all we need to do is re-register the channels...
+        Serial.println("Reset");
+        InitialiseMessaging(true);
+      break;
+      default:
+        bool state = (bool)message->data[0];
+        Serial.print("Data received from node ");
+        Serial.print(from_node);
+        // Check value and change the pin...
+        Serial.print(" {Id: ");
+        Serial.print(message->code);
+        Serial.print(", Value: ");
+        Serial.print(state);
+        Serial.println("}");
+        if (state)
+        {
+          digitalWrite(message->code, HIGH);
+        } 
+        else 
+        {
+          digitalWrite(message->code, LOW);
+        }
+      break;
+    }
   }
+  virtual void OnUnknown(uint16_t from_node, message_data *_message) 
+  {
+    // let's at least report the problem...
+    Serial.print("Message returned UNKNOWN: ");
+    Serial.println(_message->code);
+  }
+  virtual void OnResetNeeded()
+  {
+    // all we need to do is re-register the channels...
+    Serial.println("RESET");
+    InitialiseMessaging(true);
+  }
+  void InitialiseMessaging(bool _restart)
+  {
+    char channel[64];
+    sprintf(channel, "node%d/monitor", this_node);
+    SubscribeChannel( DT_TEXT, 201, channel); // we will be told what channel to show the status of using our output (LED)
+    sprintf(channel, "node%d/reset", this_node);
+    SubscribeChannel( DT_BOOL, 202, channel); // we will be specifically told to reset on this channel
+    sprintf(channel, "node%d/switch", this_node);
+    RegisterChannel( DT_BOOL, 101, &latchState, 0, channel, _restart); // we send ON/OFF messages according to the capacitive switch on this channel
+  }
+
 } HANetwork(&RFNetwork);
 
 
@@ -70,21 +109,15 @@ void setup(void)
   radio.begin();
   delay(5);
   RFNetwork.begin(90, this_node);
-  HANetwork.Begin();
+  HANetwork.Begin(this_node);
 
   pinMode(outputPin, OUTPUT);
   CSensor.set_CS_AutocaL_Millis(0xFFFFFFFF);     // turn off autocalibrate on channel 1 - just as an example
 
   delay(50);
 
-  initialisemessaging();
+  HANetwork.InitialiseMessaging(false);
   Serial.println("Initialised");
-}
-
-void initialisemessaging()
-{
-  HANetwork.SubscribeChannel( DT_BOOL, outputPin, "kitchen/light1");
-  HANetwork.RegisterChannel( DT_BOOL, 101, &lightState, 0, "kitchen/light1");
 }
 
 void loop() 
@@ -101,14 +134,13 @@ void loop()
   delay(interval);
 }
 
-bool latchState = false;
 long ThresholdHigh = 200;
 long ThresholdLow = 120;
 void Latch(long value)
 {
   if(latchState == false && value > ThresholdHigh)
   {
-    Toggle();
+    toggleState = !toggleState;
     latchState = true;
   }
   else if( latchState == true && value < ThresholdLow )
@@ -124,13 +156,5 @@ void Latch(long value)
   {
     digitalWrite(senseFb, LOW);
   }
-}
-
-void Toggle()
-{
-    lightState = !lightState;
-    digitalWrite(outputPin, lightState);
-    Serial.print("Toggle ");
-    Serial.println(lightState);
 }
 

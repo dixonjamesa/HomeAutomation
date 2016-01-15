@@ -15,20 +15,26 @@ class HomeAutoNetwork
 		bool Started = false;
 		HANWatcher ** WatchingItems;
 		int WatchedItems = 0;
-		
+		int updateCount = 0;
 	public:
 		HomeAutoNetwork(RF24Network *net):
 		TheNetwork(net)
 		{
 		}
 		
-		void Begin()
+		void Begin(const uint16_t node_id)
 		{
+		  char channel_root[32];
+		  sprintf(channel_root,"node%d",node_id);
+		  message_data mess;
+		  mess.code = 0;
+		  mess.type = DT_TEXT;
+		  strcpy(mess.data, channel_root);
 		  RF24NetworkHeader writeHeader(0);
 		  writeHeader.type = MSG_AWAKE;
 		  Serial.print("Hello world"); 
 		  Serial.print("...");
-		  while(!TheNetwork->write(writeHeader, NULL, 0)) 
+		  while(!TheNetwork->write(writeHeader, &mess, 2+1+strlen(channel_root))) 
 		  {
 			Serial.print("."); 
 			delay(WAKE_RETRY_TIMEOUT);
@@ -37,32 +43,34 @@ class HomeAutoNetwork
 		}
 		
 		virtual void OnMessage(uint16_t from_node, message_data *_message) {}
+		virtual void OnUnknown(uint16_t from_node, message_data *_message) {}
+		virtual void OnResetNeeded() {}
 
 		// Register that we want to transmit data on a channel
 		// will be sent when abs(*value) changes by > delta
-		void RegisterChannel(byte t, byte i, byte *value, float delta, const char *c)
+		void RegisterChannel(byte t, byte i, byte *value, float delta, const char *c, bool _restart)
 		{
-		  registerCommon(t, i, value, delta, 1, c);
+		  registerCommon(t, i, value, delta, 1, c, _restart);
 		}
-		void RegisterChannel(byte t, byte i, bool *value, float delta, const char *c)
+		void RegisterChannel(byte t, byte i, bool *value, float delta, const char *c, bool _restart)
 		{
-		  registerCommon(t, i, value, delta, 1, c);
+		  registerCommon(t, i, value, delta, 1, c, _restart);
 		}
-		void RegisterChannel(byte t, byte i, float *value, float delta, const char *c)
+		void RegisterChannel(byte t, byte i, float *value, float delta, const char *c, bool _restart)
 		{
-		  registerCommon(t, i, value, delta, 4, c);
+		  registerCommon(t, i, value, delta, 4, c, _restart);
 		}
-		void RegisterChannel(byte t, byte i, int *value, float delta, const char *c)
+		void RegisterChannel(byte t, byte i, int *value, float delta, const char *c, bool _restart)
 		{
-		  registerCommon(t, i, value, delta, 2, c);
+		  registerCommon(t, i, value, delta, 2, c, _restart);
 		}
-		void RegisterChannel(byte t, byte i, long *value, float delta, const char *c)
+		void RegisterChannel(byte t, byte i, long *value, float delta, const char *c, bool _restart)
 		{
-		  registerCommon(t, i, value, delta, 4, c);
+		  registerCommon(t, i, value, delta, 4, c, _restart);
 		}
-		void RegisterChannel(byte t, byte i, char *value, float delta, const char *c)
+		void RegisterChannel(byte t, byte i, char *value, float delta, const char *c, bool _restart)
 		{
-		  registerCommon(t, i, value, delta, strlen(value), c);
+		  registerCommon(t, i, value, delta, strlen(value), c, _restart);
 		}
 
 		void SubscribeChannel(byte t, byte i, const char *c)
@@ -72,11 +80,13 @@ class HomeAutoNetwork
 		  header.type = MSG_SUBSCRIBE;
 		  regsub(&header, t, i, c);
 		}
-
+		
 		// Perform an update step - check for messages, and changes on registered data variables...
 		void Update()
 		{
+			// first check for incoming messages...
 			CheckForMessages();
+			// now look to see if any of the variables we're watching have changed...
 			for( int i=0; i < WatchedItems ; i++ )
 			{
 				HANWatcher *item = WatchingItems[i];
@@ -152,6 +162,13 @@ class HomeAutoNetwork
 				break;
 				}
 			}
+			if( ++updateCount > 15)
+			{
+				Serial.println("sending up check");
+				RF24NetworkHeader writeHeader(0);
+				writeHeader.type = MSG_AWAKEACK;
+				TheNetwork->write(writeHeader, NULL, 0);
+			}
 		}
 		
 		void CheckForMessages()
@@ -163,11 +180,16 @@ class HomeAutoNetwork
 			TheNetwork->peek(header);
 			if(header.type == MSG_UNKNOWN)
 			{
-			  // we could either silently try re-registering...
-			  // or alert the user via a pin...
-			  TheNetwork->read(header, &message, sizeof(message));
-			  Serial.print("MSG_UNKNOWN RECEIVED: ");
-			  Serial.println(message.code);
+			  int sizeread = TheNetwork->read(header, &message, sizeof(message));
+			  if(sizeread > 0 )
+			  {
+				OnUnknown(header.from_node, &message);
+			  }
+			  else
+			  {
+				// generic unknown - result of a failed AWAKEACK - we need to reset ourselves...
+				OnResetNeeded();
+			  }
 			}
 			else if (header.type == MSG_DATA) 
 			{
@@ -186,14 +208,14 @@ class HomeAutoNetwork
 		
 		int SendMessage(message_data *_message, int _datasize)
 		{
-			// The network header initialized for this node
 			RF24NetworkHeader writeHeader(0);
 			writeHeader.type = MSG_DATA;
 			return TheNetwork->write(writeHeader, _message, _datasize+2);
 		}
 	private:
-		void registerCommon(byte t, byte i, void *value, float delta, int size, const char *c)
+		void registerCommon(byte t, byte i, void *value, float delta, int size, const char *c, bool _restart)
 		{
+		  // register with the controller anyway - it has its own redundancy checking
 		  RF24NetworkHeader header(0);
 		  Serial.print("Registering channel:");
 		  header.type = MSG_REGISTER;
@@ -204,11 +226,23 @@ class HomeAutoNetwork
 		  {
 			if( WatchingItems[wid]->data.code == i )
 			{
-				Serial.print("ERROR: Already registered code ");
-				Serial.println( i );
+				// bail
+				if( !_restart )
+				{
+					Serial.print("ERROR: Already registered code ");
+					Serial.println( i );
+				}
+				return;
 			}
 		  }
-		  
+		  if( _restart )
+		  {
+		   // if we're restarting, then we should already have the watcher set up...
+		   // so we shouldn't get here, so let's warn the user...
+			Serial.print("WARNING: Unexpected: Restart triggered, but code not already present: ");
+			Serial.println(i);
+		  }
+		  // add the watch
 		  WatchedItems++;
 		  HANWatcher **newwatches = new HANWatcher*[WatchedItems];
 		  for(int wid=0;wid<WatchedItems;wid++) newwatches[wid] = WatchingItems[wid];

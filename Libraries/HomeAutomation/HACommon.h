@@ -1,10 +1,10 @@
-#define MSG_REGISTER 1
-#define MSG_SUBSCRIBE 2
-#define MSG_DATA 3
-#define MSG_PING 4
-#define MSG_PINGACK 5
-#define MSG_UNKNOWN 6
-#define MSG_AWAKE 7
+#define MSG_REGISTER 1 // register that we will send messages on a particular channel
+#define MSG_SUBSCRIBE 2 // subscribe to messages on a channel
+#define MSG_DATA 3 // data message
+#define MSG_PING 4 // empty message - network presence test
+#define MSG_AWAKEACK 5 // confirm controller still knows about us (will receive MSG_UNKNOWN if not)
+#define MSG_UNKNOWN 6 // unknown MSG_DATA received (usually due to failing to send MSG_REGISTER)
+#define MSG_AWAKE 7 // sensor node started
 
 #define DT_BOOL 1
 #define DT_FLOAT 2
