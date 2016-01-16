@@ -7,11 +7,11 @@
 
 // PIN Configuration:
 
-const bool senseTx = 3;
-const bool senseRx = 4;
-const bool senseFb = 8;
-const bool RFCE = 9; // transmitter
-const bool RFCSN = 10; // transmitter
+const byte senseTx = 3;
+const byte senseRx = 4;
+const byte senseFb = 8;
+const byte RFCE = 9; // transmitter
+const byte RFCSN = 10; // transmitter
 const byte outputPin = 2;
 
 // Constants that identify this node and the node to send data to

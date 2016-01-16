@@ -5,16 +5,18 @@
 #include <HAHelper.h>
 
 
-// Light relay pin
+// PIN Configuration:
 byte outputPin = 2;
-
-// Radio with CE & CSN connected to pins 9 & 10
-RF24 radio(9, 10);
-RF24Network RFNetwork(radio);
+const byte RFCE = 9; // transmitter
+const byte RFCSN = 10; // transmitter
 
 // Constants that identify this node and the node to send data to
 const uint16_t this_node = 1;
 const uint16_t control_node = 0;
+
+// Radio with CE & CSN connected to pins 9 & 10
+RF24 radio(RFCE, RFCSN);
+RF24Network RFNetwork(radio);
 
 // Time between checks (in ms)
 const unsigned long interval = 500;
@@ -47,6 +49,23 @@ class MyHANet: public HomeAutoNetwork
         digitalWrite(message->code, LOW);
       }
   }
+  virtual void OnUnknown(uint16_t from_node, message_data *_message) 
+  {
+    // let's at least report the problem...
+    Serial.print("Message returned UNKNOWN: ");
+    Serial.println(_message->code);
+  }
+  virtual void OnResetNeeded()
+  {
+    // all we need to do is re-register the channels...
+    Serial.println("RESET");
+    InitialiseMessaging();
+  }
+  void InitialiseMessaging()
+  {
+    SubscribeChannel( DT_BOOL, outputPin, "kitchen/light1");
+  }
+
 } HANetwork(&RFNetwork);
 
 
@@ -61,19 +80,14 @@ void setup(void)
   radio.begin();
   delay(5);
   RFNetwork.begin(90, this_node);
-  HANetwork.Begin();
+  HANetwork.Begin(this_node);
 
   pinMode(outputPin, OUTPUT);
 
   delay(50);
 
-  initialisemessaging();
+  HANetwork.InitialiseMessaging();
   Serial.println("Initialised");
-}
-
-void initialisemessaging()
-{
-  HANetwork.SubscribeChannel( DT_BOOL, outputPin, "kitchen/light1");
 }
 
 void loop() 
