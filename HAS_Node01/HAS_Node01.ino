@@ -63,7 +63,7 @@ class MyHANet: public HomeAutoNetwork
   }
   void InitialiseMessaging()
   {
-    SubscribeChannel( DT_BOOL, outputPin, "kitchen/light1");
+    SubscribeChannel( DT_BOOL, outputPin, "home/kitchen/light1");
   }
 
 } HANetwork(&RFNetwork);

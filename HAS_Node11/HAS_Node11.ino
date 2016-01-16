@@ -21,6 +21,9 @@ const uint16_t control_node = 0;
 // the touch sensor
 CapacitiveSensor CSensor = CapacitiveSensor(senseTx,senseRx);        // 10 megohm resistor between pins 4 & 2, pin 2 is sensor pin, add wire, foil
 
+//initialisation state
+bool allInitialised=false;
+
 // Switch states
 bool latchState=false;
 bool toggleState=false;
@@ -30,7 +33,7 @@ RF24 radio(RFCE, RFCSN);
 RF24Network RFNetwork(radio);
 
 // Time between checks (in ms)
-const unsigned long interval = 500;
+const unsigned long interval = 100;
 
 class MyHANet: public HomeAutoNetwork
 {
@@ -45,6 +48,7 @@ class MyHANet: public HomeAutoNetwork
         Serial.print("Been told to monitor channel ");
         Serial.println(message->data);
         SubscribeChannel( DT_BOOL, outputPin, message->data );
+        allInitialised = true;
       break;
       case 202: // reset
         // all we need to do is re-register the channels...
@@ -61,6 +65,7 @@ class MyHANet: public HomeAutoNetwork
         Serial.print(", Value: ");
         Serial.print(state);
         Serial.println("}");
+        toggleState = state;
         if (state)
         {
           digitalWrite(message->code, HIGH);
@@ -87,12 +92,13 @@ class MyHANet: public HomeAutoNetwork
   void InitialiseMessaging(bool _restart)
   {
     char channel[64];
-    sprintf(channel, "node%d/monitor", this_node);
+    sprintf(channel, "home/node%o/monitor", this_node);
     SubscribeChannel( DT_TEXT, 201, channel); // we will be told what channel to show the status of using our output (LED)
-    sprintf(channel, "node%d/reset", this_node);
+    sprintf(channel, "home/node%o/reset", this_node);
     SubscribeChannel( DT_BOOL, 202, channel); // we will be specifically told to reset on this channel
-    sprintf(channel, "node%d/switch", this_node);
+    sprintf(channel, "home/node%o/switch", this_node);
     RegisterChannel( DT_BOOL, 101, &latchState, 0, channel, _restart); // we send ON/OFF messages according to the capacitive switch on this channel
+    allInitialised = false;
   }
 
 } HANetwork(&RFNetwork);
@@ -112,6 +118,7 @@ void setup(void)
   HANetwork.Begin(this_node);
 
   pinMode(outputPin, OUTPUT);
+  pinMode(senseFb, OUTPUT);
   CSensor.set_CS_AutocaL_Millis(0xFFFFFFFF);     // turn off autocalibrate on channel 1 - just as an example
 
   delay(50);
@@ -122,16 +129,26 @@ void setup(void)
 
 void loop() 
 {
-  
+  long total;  
   // Update network data
   RFNetwork.update();
   HANetwork.Update();
-  long total1 =  CSensor.capacitiveSensor(30);
-  Latch(total1);
-  Serial.println(total1);
-
-  // Wait a bit before we start over again
-  delay(interval);
+  
+  for(int i=0;i<5;i++)
+  {
+    // Wait a bit before we start over again
+    total =  CSensor.capacitiveSensor(30);
+    Latch(total);
+    /*Serial.print(total);
+    Serial.print(" ");*/
+    delay(interval);
+  }
+  //Serial.println(".");
+  if( !allInitialised )
+  {
+    toggleState = !toggleState;
+    digitalWrite(outputPin, toggleState);
+  }
 }
 
 long ThresholdHigh = 200;
@@ -141,6 +158,7 @@ void Latch(long value)
   if(latchState == false && value > ThresholdHigh)
   {
     toggleState = !toggleState;
+    digitalWrite(outputPin, toggleState);
     latchState = true;
   }
   else if( latchState == true && value < ThresholdLow )
@@ -148,13 +166,6 @@ void Latch(long value)
     latchState = false;
   }
 
-  if( value > ThresholdLow)
-  {
-    digitalWrite(senseFb, HIGH);
-  }
-  else
-  {
-    digitalWrite(senseFb, LOW);
-  }
+  digitalWrite(senseFb, latchState);
 }
 

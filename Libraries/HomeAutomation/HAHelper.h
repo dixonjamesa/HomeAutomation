@@ -16,6 +16,7 @@ class HomeAutoNetwork
 		HANWatcher ** WatchingItems;
 		int WatchedItems = 0;
 		int updateCount = 0;
+		uint16_t NodeID; 
 	public:
 		HomeAutoNetwork(RF24Network *net):
 		TheNetwork(net)
@@ -24,22 +25,10 @@ class HomeAutoNetwork
 		
 		void Begin(const uint16_t node_id)
 		{
-		  char channel_root[32];
-		  sprintf(channel_root,"node%d",node_id);
-		  message_data mess;
-		  mess.code = 0;
-		  mess.type = DT_TEXT;
-		  strcpy(mess.data, channel_root);
-		  RF24NetworkHeader writeHeader(0);
-		  writeHeader.type = MSG_AWAKE;
-		  Serial.print("Hello world"); 
-		  Serial.print("...");
-		  while(!TheNetwork->write(writeHeader, &mess, 2+1+strlen(channel_root))) 
-		  {
-			Serial.print("."); 
-			delay(WAKE_RETRY_TIMEOUT);
-		  }
-		  Serial.print("OK.\n"); 
+			NodeID = node_id;
+			Serial.print("Hello world"); 
+			Serial.print("...");
+			sendAwake(MSG_AWAKE, node_id);
 		}
 		
 		virtual void OnMessage(uint16_t from_node, message_data *_message) {}
@@ -162,12 +151,11 @@ class HomeAutoNetwork
 				break;
 				}
 			}
-			if( ++updateCount > 15)
+			if( ++updateCount > 30)
 			{
-				Serial.println("sending up check");
-				RF24NetworkHeader writeHeader(0);
-				writeHeader.type = MSG_AWAKEACK;
-				TheNetwork->write(writeHeader, NULL, 0);
+				Serial.print("sending up check.");
+				sendAwake(MSG_AWAKEACK, NodeID);
+				updateCount = 0;
 			}
 		}
 		
@@ -196,11 +184,18 @@ class HomeAutoNetwork
 			  TheNetwork->read(header, &message, sizeof(message));
 			  OnMessage(header.from_node, &message);
 			} 
+			else if (header.type == MSG_PING)
+			{
+				// just ignore
+				TheNetwork->read(header, &message, sizeof(message));
+			}
 			else 
 			{
 			  // This is not a type we recognize
 			  TheNetwork->read(header, &message, sizeof(message));
-			  Serial.print("Unknown message received from node ");
+			  Serial.print("Unknown message ");
+			  Serial.print(header.type);
+			  Serial.print(" received from node ");
 			  Serial.println(header.from_node);
 			}
 		  }
@@ -286,5 +281,22 @@ class HomeAutoNetwork
 				memcpy(w->data.data, originalvalue, size);
 				Serial.println("FAIL");
 			}
+		}
+		void sendAwake(byte _code, const uint16_t node_id)
+		{
+			char channel_root[32];
+			sprintf(channel_root,"home/node%o",node_id);
+			message_data mess;
+			mess.code = 0;
+			mess.type = DT_TEXT;
+			strcpy(mess.data, channel_root);
+			RF24NetworkHeader writeHeader(0);
+			writeHeader.type = _code;
+			while(!TheNetwork->write(writeHeader, &mess, 2+1+strlen(channel_root))) 
+			{
+				Serial.print("."); 
+				delay(WAKE_RETRY_TIMEOUT);
+			}
+			Serial.print("OK.\n"); 
 		}
 };
