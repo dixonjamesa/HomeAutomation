@@ -107,7 +107,7 @@ RF24 radio(RPI_BPLUS_GPIO_J8_15, RPI_BPLUS_GPIO_J8_24, BCM2835_SPI_SPEED_8MHZ);
 RF24Network network(radio);
 
 // Time between checking for packets (in ms)
-const unsigned long interval = 100;
+const unsigned long interval = 500;
 // Timer used to determine when to check nodes for still being present in network
 unsigned long timespan=0; 
 
@@ -146,6 +146,9 @@ class MyMosquitto : public mosqpp::mosquittopp
 			strcat(strbuffer, tbuffer);
 			return;
 		}
+		sprintf(tbuffer, "matches %d items; ", matches);
+		strcat(strbuffer, tbuffer);
+		
 		for(std::list<mapitem *>::const_iterator iterator = matchlist.begin(), end = matchlist.end();
 			iterator != end; iterator++)
 		{
@@ -225,11 +228,11 @@ class MyMosquitto : public mosqpp::mosquittopp
 			header.type = MSG_DATA;
 			if (network.write(header, &datamessage, datasize))
 			{
-				strcat(strbuffer, "Message sent\n");
+				strcat(strbuffer, "OK\n");
 			}
 			else
 			{
-				strcat(strbuffer, "Could not send message\n");
+				strcat(strbuffer, "FAIL (queued for retry)\n");
 				
 				// NEED TO KEEP TRYING!!
 				// put a copy of the message onto a queue to try again later...
@@ -252,13 +255,14 @@ class MyMosquitto : public mosqpp::mosquittopp
 			header.type = MSG_DATA;
 			if (network.write(header, &mess->message, mess->datasize))
 			{
-				if(logfile) fprintf(logfile, "Queued message sent to node %d\n", mess->nodeid);
+				if(logfile) fprintf(logfile, "Queued message sent to node %o\n", mess->nodeid);
 				iterator = queuedMessages.erase(iterator);
 				delete mess;
 			}
 			else
 			{
 				// status quo...
+				if(logfile) fprintf(logfile, "Queue send fail to node %o\n", mess->nodeid);
 			}
 			iterator++;
 		}
@@ -282,18 +286,19 @@ class SensorList
 	public:
 		void AddSensor(int nodeid)
 		{
-			for( std::list<int>::const_iterator iterator = NodeList.begin(), end = NodeList.end();
+			SensorNodeData *snd;
+			for( std::list<SensorNodeData *>::const_iterator iterator = NodeList.begin(), end = NodeList.end();
 					iterator != end; iterator++)
 			{
-				int ni = *iterator;
-				if(ni == nodeid )
+				snd = *iterator;
+				if(snd->nodeid == nodeid )
 				{
 					// already in the list
 					MyMessageMap->RemoveAll(nodeid);
 					return;
 				}
 			}
-			SensorNodeData *snd = new SensorNodeData();
+			snd = new SensorNodeData();
 			snd->nodeid = nodeid;
 			snd->strikes = 0;
 			NodeList.push_front(snd);
@@ -301,7 +306,7 @@ class SensorList
 		void RemoveSensor(int nodeid)
 		{
 			SensorNodeData *snd;
-			for( std::list<int>::const_iterator iterator = NodeList.begin(), end = NodeList.end();
+			for( std::list<SensorNodeData *>::iterator iterator = NodeList.begin(), end = NodeList.end();
 					iterator != end; iterator++)
 			{
 				snd = *iterator;
@@ -314,30 +319,47 @@ class SensorList
 				}
 			}
 		}
+		// see if a sensor is in teh list. If it is, we reset the strike count
+		bool ConfirmSensor(int nodeid)
+		{
+			SensorNodeData *snd;
+			for( std::list<SensorNodeData *>::const_iterator iterator = NodeList.begin(), end = NodeList.end();
+					iterator != end; iterator++)
+			{
+				snd = *iterator;
+				if(snd->nodeid == nodeid )
+				{
+					snd->strikes = 0;
+					return true;
+				}
+			}
+			return false;
+		}
 		// go round all the sensors seeing if they respond...
 		void CheckSensors()
 		{
+			//if(logfile) fprintf(logfile, "Sensor Check...\n");
 			SensorNodeData *snd;
-			for( std::list<int>::const_iterator iterator = NodeList.begin(), end = NodeList.end();
+			for( std::list<SensorNodeData *>::iterator iterator = NodeList.begin(), end = NodeList.end();
 					iterator != end; /* deliberately nothing */)
 			{
 				snd = *iterator;
 				// Send message on RF24 network
-				RF24NetworkHeader header(item->nodeid);
+				RF24NetworkHeader header(snd->nodeid);
 				header.type = MSG_PING;
 				if (!network.write(header, NULL, 0) )
 				{
 					if( ++snd->strikes > 10 )
 					{
 						// looks like this node is AWOL
-						if(logfile) fprintf(logfile, "Sensor node %d unresponsive - 10 strikes. Removing\n", snd->nodeid);
+						if(logfile) fprintf(logfile, "Sensor node %o unresponsive - 10 strikes. Removing\n", snd->nodeid);
 						MyMessageMap->RemoveAll(snd->nodeid);
 						iterator = NodeList.erase(iterator);
 						delete snd;						
 					}
 					else
 					{
-						if(logfile) fprintf(logfile, "lost sensor node %d, strike %d\n", snd->nodeid, snd->strikes);
+						//if(logfile) fprintf(logfile, "lost sensor node %o, strike %d\n", snd->nodeid, snd->strikes);
 						iterator++;
 					}
 				}
@@ -345,7 +367,7 @@ class SensorList
 				{
 					if( snd->strikes > 0 )
 					{
-						if(logfile) fprintf(logfile, "recovered sensor node %d\n", snd->nodeid);
+						//if(logfile) fprintf(logfile, "recovered sensor node %o\n", snd->nodeid);
 						snd->strikes = 0;
 					}
 					iterator++;
@@ -391,13 +413,13 @@ int main(int argc, char** argv)
 		// Get the latest network info
 		network.update();
 		mosquittoBroker.ProcessQueue();
-		//printf(".\n");
 		
 		// Enter this loop if there is data available to be read,
 		// and continue it as long as there is more data to read
 		while ( network.available() )
 		{
-			sprintf(strbuffer, "MESSAGE:");				
+			*strbuffer = 0;
+			//sprintf(strbuffer, "MESSAGE:");				
 			RF24NetworkHeader header;
 			// Have a peek at the data to see the header type
 			network.peek(header);
@@ -407,26 +429,69 @@ int main(int argc, char** argv)
 				{
 					message_data receipt;
 					network.read(header, &receipt, sizeof(receipt));
-					sprintf(tbuffer, "AWAKE from node %o, channel root \n", header.from_node, receipt.data);
+					sprintf(tbuffer, "AWAKE from node %o, channel root %s\n", header.from_node, receipt.data);
 					strcat(strbuffer, tbuffer);
-					// remove any messages stored previously for this node...
+					// add this sensor (removes any messages stored previously for this node...)
 					MySensors->AddSensor(header.from_node);
 					char buffer[128];
-					sprintf (buffer, "mosquitto_pub -t %s\\wake -m 1", receipt.data);
+					sprintf (buffer, "mosquitto_pub -t %s/wake -m 1", receipt.data);
+							strcat(strbuffer,"PUBLISH:");
+							strcat(strbuffer, buffer);
+							strcat(strbuffer,"\n");
 					system(buffer);
 				}
+				break;
+				case MSG_AWAKEACK:
+					message_data receipt;
+					network.read(header, &receipt, sizeof(receipt));
+					if( MySensors->ConfirmSensor(header.from_node) )
+					{
+						// all fine
+					}
+					else
+					{
+						sprintf(tbuffer, "AWAKEACK from node %o, ", header.from_node);
+						strcat(strbuffer, tbuffer);
+						int retries = 5;
+						// not present, so tell the node...
+						RF24NetworkHeader txheader(header.from_node);
+						txheader.type = MSG_UNKNOWN;
+						while ( retries-- > 0 && !network.write(txheader, NULL, 0))
+						{
+							// let's just wait until next awake is sent.
+							delay(5);
+						}
+						if( retries <= 0 )
+						{
+							strcat(strbuffer,"UNKNOWN response failed\n");
+						}
+						else
+						{
+							strcat(strbuffer,"Sent UNKNOWN in reply\n");
+							// add this sensor (removes any messages stored previously for this node...)
+							MySensors->AddSensor(header.from_node);
+							char buffer[128];
+							sprintf (buffer, "mosquitto_pub -t %s/wake -m 1", receipt.data);
+							strcat(strbuffer,"PUBLISH:");
+							strcat(strbuffer, buffer);
+							strcat(strbuffer,"\n");
+							
+							system(buffer);
+						}
+					}
 				break;
 				case MSG_REGISTER:
 				{
 					char channel[128];
 					message_subscribe message;
 					network.read(header, &message, sizeof(message));
-					sprintf(channel, "home/%s", message.channel);
+					sprintf(channel, "%s", message.channel);
 					mapitem *item = MyMessageMap->Match(header.from_node, message.code, true);
 					if( item != NULL )
 					{
-						sprintf(tbuffer, "Node %o trying to re-register code %d for channel %s, but already on channel %s with code %d; IGNORED\n", header.from_node, message.code, channel, item->channel, item->code);
-						strcat(strbuffer, tbuffer);
+						// Produces a lot of spew, due to non-guaranteed network delivery (ie messages get sent multiple times)
+						//sprintf(tbuffer, "Node %o trying to re-register code %d for channel %s, but already on channel %s with code %d; IGNORED\n", header.from_node, message.code, channel, item->channel, item->code);
+						//strcat(strbuffer, tbuffer);
 					}
 					else
 					{
@@ -441,12 +506,13 @@ int main(int argc, char** argv)
 					char channel[128];
 					message_subscribe message;
 					network.read(header, &message, sizeof(message));
-					sprintf(channel, "home/%s", message.channel);
+					sprintf(channel, "%s", message.channel);
 					mapitem *item = MyMessageMap->Match(header.from_node, message.code, false);
 					if( item != NULL )
 					{
-						sprintf(tbuffer, "Node %o trying to re-subscribe code %d for channel %s, but already on channel %s with code %d; IGNORED\n", header.from_node, message.code, channel, item->channel, item->code);
-						strcat(strbuffer, tbuffer);
+						// Produces a lot of spew, due to non-guaranteed network delivery (ie messages get sent multiple times)
+						//sprintf(tbuffer, "Node %o trying to re-subscribe code %d for channel %s, but already on channel %s with code %d; IGNORED\n", header.from_node, message.code, channel, item->channel, item->code);
+						//strcat(strbuffer, tbuffer);
 					}
 					else
 					{
@@ -573,6 +639,7 @@ int main(int argc, char** argv)
 		if( timespan > 10000 )
 		{
 			MySensors->CheckSensors();
+			timespan = 0;
 		}
 	}
 
