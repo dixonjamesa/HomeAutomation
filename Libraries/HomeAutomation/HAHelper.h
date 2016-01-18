@@ -263,6 +263,7 @@ class HomeAutoNetwork
 		  {
 			Serial.print("."); 
 			delay(SUBS_RETRY_TIMEOUT);
+			TheNetwork->update();
 		  }
 			Serial.print("OK.\n"); 
 		}
@@ -296,6 +297,7 @@ class HomeAutoNetwork
 			{
 				Serial.print("."); 
 				delay(WAKE_RETRY_TIMEOUT);
+				TheNetwork->update();
 			}
 			Serial.print("OK.\n"); 
 		}
