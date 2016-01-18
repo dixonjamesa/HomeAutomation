@@ -1,3 +1,6 @@
+#ifndef __HACOMMON_H
+#define __HACOMMON_H
+
 #define MSG_REGISTER 1 // register that we will send messages on a particular channel
 #define MSG_SUBSCRIBE 2 // subscribe to messages on a channel
 #define MSG_DATA 3 // data message
@@ -26,3 +29,5 @@ struct message_data {
 	unsigned char type; // DT_xxx
 	char data[64];
 };
+
+#endif
