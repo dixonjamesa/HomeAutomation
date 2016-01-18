@@ -15,7 +15,7 @@ class HomeAutoNetwork
 		bool Started = false;
 		HANWatcher ** WatchingItems;
 		int WatchedItems = 0;
-		int updateCount = 0;
+		unsigned long updateTimer = 0;
 		uint16_t NodeID; 
 	public:
 		HomeAutoNetwork(RF24Network *net):
@@ -71,7 +71,7 @@ class HomeAutoNetwork
 		}
 		
 		// Perform an update step - check for messages, and changes on registered data variables...
-		void Update()
+		void Update(unsigned long _time)
 		{
 			// first check for incoming messages...
 			CheckForMessages();
@@ -151,11 +151,12 @@ class HomeAutoNetwork
 				break;
 				}
 			}
-			if( ++updateCount > 30)
+			updateTimer += _time;
+			if( updateTimer > 30*1000 ) // 30 secs
 			{
 				Serial.print("sending up check.");
 				sendAwake(MSG_AWAKEACK, NodeID);
-				updateCount = 0;
+				updateTimer = 0;
 			}
 		}
 		
@@ -258,8 +259,10 @@ class HomeAutoNetwork
 		  mess.code = i;
 		  strcpy(mess.channel, c);
 		  Serial.print((char *)mess.channel); 
+		  Serial.print(" using code ");
+		  Serial.print(i);
 		  Serial.print("...");
-		  while(!TheNetwork->write(*header, &mess, sizeof(mess))) 
+		  while(!TheNetwork->write(*header, &mess, 2+1+strlen(c))) 
 		  {
 			Serial.print("."); 
 			delay(SUBS_RETRY_TIMEOUT);
@@ -271,7 +274,9 @@ class HomeAutoNetwork
 		// Send a MSG_DATA to the controller, of specified size, reverting to originalvalue if not sent
 		bool sendDataMessage(HANWatcher *w, void *originalvalue, int size)
 		{
-			Serial.print("Value changed... transmitting...");
+			Serial.print("Value changed on code ");
+			Serial.print(w->data.code);
+			Serial.print("... transmitting...");
 			if(SendMessage(&w->data, size)) 
 			{
 				Serial.println("OK");

@@ -27,13 +27,15 @@ bool allInitialised=false;
 // Switch states
 bool latchState=false;
 bool toggleState=false;
+bool resendsetup=false;
+bool dummy=false;
 
 // Radio with CE & CSN pins
 RF24 radio(RFCE, RFCSN);
 RF24Network RFNetwork(radio);
 
 // Time between checks (in ms)
-const unsigned long interval = 100;
+const unsigned long interval = 200;
 
 class MyHANet: public HomeAutoNetwork
 {
@@ -48,6 +50,7 @@ class MyHANet: public HomeAutoNetwork
         Serial.print("Been told to monitor channel ");
         Serial.println(message->data);
         SubscribeChannel( DT_BOOL, outputPin, message->data );
+        RegisterChannel( DT_BOOL, 101, &dummy, 1, message->data, false ); // so we can send messages on this code
         allInitialised = true;
       break;
       case 202: // reset
@@ -55,25 +58,21 @@ class MyHANet: public HomeAutoNetwork
         Serial.println("Reset");
         InitialiseMessaging(true);
       break;
-      default:
-        bool state = (bool)message->data[0];
+      case outputPin:
+        toggleState = (bool)message->data[0];
         Serial.print("Data received from node ");
         Serial.print(from_node);
         // Check value and change the pin...
-        Serial.print(" {Id: ");
+        Serial.print(" {Code: ");
         Serial.print(message->code);
         Serial.print(", Value: ");
-        Serial.print(state);
+        Serial.print(toggleState);
         Serial.println("}");
-        toggleState = state;
-        if (state)
-        {
-          digitalWrite(message->code, HIGH);
-        } 
-        else 
-        {
-          digitalWrite(message->code, LOW);
-        }
+        digitalWrite(outputPin, toggleState);
+      break;
+      default:
+        Serial.print("Received unexpected code ");
+        Serial.println(message->code);
       break;
     }
   }
@@ -93,11 +92,11 @@ class MyHANet: public HomeAutoNetwork
   {
     char channel[64];
     sprintf(channel, "home/node%o/monitor", this_node);
-    SubscribeChannel( DT_TEXT, 201, channel); // we will be told what channel to show the status of using our output (LED)
+    SubscribeChannel( DT_TEXT, 201, channel); // we will be told what channel to do switching for
     sprintf(channel, "home/node%o/reset", this_node);
-    SubscribeChannel( DT_BOOL, 202, channel); // we will be specifically told to reset on this channel
-    sprintf(channel, "home/node%o/switch", this_node);
-    RegisterChannel( DT_BOOL, 101, &latchState, 0, channel, _restart); // we send ON/OFF messages according to the capacitive switch on this channel
+    SubscribeChannel( DT_TEXT, 202, channel); // we will be told to reset here
+    sprintf(channel, "home/node%o/sendsetup", this_node);
+    RegisterChannel( DT_BOOL, 200, &resendsetup, 0, channel, false); // use this to prompt a further wake message to get initialisation info
     allInitialised = false;
   }
 
@@ -115,6 +114,9 @@ void setup(void)
   radio.begin();
   delay(5);
   RFNetwork.begin(120, this_node);
+  radio.setRetries(8,11);
+  RFNetwork.txTimeout = 529;
+  
   HANetwork.Begin(this_node);
 
   pinMode(outputPin, OUTPUT);
@@ -132,22 +134,20 @@ void loop()
   long total;  
   // Update network data
   RFNetwork.update();
-  HANetwork.Update();
+  HANetwork.Update(interval);
   
-  for(int i=0;i<5;i++)
-  {
-    // Wait a bit before we start over again
-    total =  CSensor.capacitiveSensor(30);
-    Latch(total);
-    /*Serial.print(total);
-    Serial.print(" ");*/
-    delay(interval);
-  }
-  //Serial.println(".");
+  total =  CSensor.capacitiveSensor(30);
+  Latch(total);
+  //Serial.println(total);
+  // Wait a bit before we start over again
+  delay(interval);
+
   if( !allInitialised )
   {
+    delay(400);
     toggleState = !toggleState;
     digitalWrite(outputPin, toggleState);
+    resendsetup = !resendsetup; // trigger a message
   }
 }
 
@@ -159,6 +159,11 @@ void Latch(long value)
   {
     toggleState = !toggleState;
     digitalWrite(outputPin, toggleState);
+    message_data msg;
+    msg.code = 101;
+    msg.type = DT_BOOL;
+    memcpy(msg.data, &toggleState, 1);
+    HANetwork.SendMessage(&msg, 1);
     latchState = true;
   }
   else if( latchState == true && value < ThresholdLow )

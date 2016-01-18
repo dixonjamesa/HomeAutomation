@@ -19,7 +19,7 @@ RF24 radio(RFCE, RFCSN);
 RF24Network RFNetwork(radio);
 
 // Time between checks (in ms)
-const unsigned long interval = 500;
+const unsigned long interval = 100;
 
 class MyHANet: public HomeAutoNetwork
 {
@@ -79,7 +79,9 @@ void setup(void)
   SPI.begin();
   radio.begin();
   delay(5);
-  RFNetwork.begin(90, this_node);
+  RFNetwork.begin(120, this_node);
+  radio.setRetries(8,11);
+  RFNetwork.txTimeout = 553;
   HANetwork.Begin(this_node);
 
   pinMode(outputPin, OUTPUT);
@@ -91,11 +93,10 @@ void setup(void)
 }
 
 void loop() 
-{
-  
+{ 
   // Update network data
   RFNetwork.update();
-  HANetwork.Update();
+  HANetwork.Update(interval);
   
   // Wait a bit before we start over again
   delay(interval);
