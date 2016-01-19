@@ -36,34 +36,31 @@ class MyHANet: public HomeAutoNetwork
       Serial.print(", Value: ");
       Serial.print(state);
       Serial.println("}");
-      if (!state) // relay is closed on 0, open on 1 (ie please invert message)
-      {
-        Serial.print("Sending HIGH to pin ");
-        Serial.println(message->code);
-        digitalWrite(message->code, HIGH);
-      } 
-      else 
-      {
-        Serial.print("Sending Low to pin ");
-        Serial.println(message->code);
-        digitalWrite(message->code, LOW);
-      }
+
+      digitalWrite(message->code, !state); // relay is closed on 0, open on 1 (ie please invert message)
   }
+  
   virtual void OnUnknown(uint16_t from_node, message_data *_message) 
   {
     // let's at least report the problem...
     Serial.print("Message returned UNKNOWN: ");
     Serial.println(_message->code);
+    sprintf(StatusMessage , "Received unknown code %d", _message->code);
   }
+  
   virtual void OnResetNeeded()
   {
     // all we need to do is re-register the channels...
     Serial.println("RESET");
-    InitialiseMessaging();
+    strcpy(StatusMessage, "Resetting");
+    InitialiseMessaging(true);
   }
-  void InitialiseMessaging()
+  void InitialiseMessaging(bool _restart=false)
   {
     SubscribeChannel( DT_BOOL, outputPin, "home/kitchen/light1");
+    RegisterChannel( DT_TEXT, 101, StatusMessage, "home/kitchen/hub/status", _restart); // common status reporting method
+    Serial.println("Initialised");
+    strcpy(StatusMessage,"Initialised OK");
   }
 
 } HANetwork(&RFNetwork);
@@ -89,7 +86,6 @@ void setup(void)
   delay(50);
 
   HANetwork.InitialiseMessaging();
-  Serial.println("Initialised");
 }
 
 void loop() 

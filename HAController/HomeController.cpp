@@ -205,6 +205,12 @@ void MyMosquitto::on_message(const struct mosquitto_message* mosqmessage)
 				datasize += 1;
 			}
 			break;
+			case DT_TOGGLE:
+			{
+				datamessage = (message_data){ item->code, DT_TOGGLE, 0};
+				// no additional data to send
+			}
+			break;
 			case DT_INT16:
 			{
 				int value = atoi((char*)mosqmessage->payload);
@@ -377,7 +383,7 @@ int main(int argc, char** argv)
 						int retries = 5;
 						// not present, so tell the node...
 						RF24NetworkHeader txheader(header.from_node);
-						txheader.type = MSG_UNKNOWN;
+						txheader.type = MSG_IDENTIFY;
 						while ( retries-- > 0 && !network.write(txheader, NULL, 0))
 						{
 							// let's just wait until next awake is sent.
@@ -478,7 +484,15 @@ int main(int argc, char** argv)
 								bool result = message.data[0];
 								sprintf(tbuffer, " = %s (BOOL %d)\n", item->channel, result);
 								strcat(strbuffer, tbuffer);
-								sprintf (buffer, "mosquitto_pub -t %s -m \"%d\"", item->channel, result);
+								sprintf (buffer, "mosquitto_pub -t %s -m \"%s\"", item->channel, result?"ON":"OFF");
+								system(buffer);
+							}
+							break;
+							case DT_TOGGLE:
+							{
+								sprintf(tbuffer, " = %s (TOGGLE)\n", item->channel);
+								strcat(strbuffer, tbuffer);
+								sprintf (buffer, "mosquitto_pub -t %s -m \"TOGGLE\"", item->channel);
 								system(buffer);
 							}
 							break;
