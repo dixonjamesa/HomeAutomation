@@ -183,11 +183,11 @@ void MyMosquitto::on_message(const struct mosquitto_message* mosqmessage)
 			case DT_BOOL:
 			{
 				bool state = true;
-				if (!strcmp((char*)mosqmessage->payload, "0"))
+				if (!strcmp((char*)mosqmessage->payload, "OFF"))
 				{
 					state = false;
 				}
-				else if (strcmp((char*)mosqmessage->payload, "1"))
+				else if (strcmp((char*)mosqmessage->payload, "ON"))
 				{	// warn if data wasn't strictly 0 or 1
 					sprintf(tbuffer, "Unknown bool state: %s\n", (char *)mosqmessage->payload);
 					strcat(strbuffer, tbuffer);
@@ -309,7 +309,7 @@ int main(int argc, char** argv)
 	radio.begin();
 	radio.setRetries(11,15);
 	delay(5);
-	network.begin(120, 0); // we are the master, node 0
+	network.begin(90, 0); // we are the master, node 0
 	network.txTimeout = 500;
 	
 	MyMessageMap = new MessageMap();
@@ -510,9 +510,9 @@ int main(int argc, char** argv)
 							{
 								char result;
 								result = *message.data;
-								sprintf(tbuffer, " = %s (BYTE %c)\n", item->channel, result);
+								sprintf(tbuffer, " = %s (BYTE %d)\n", item->channel, result);
 								strcat(strbuffer, tbuffer);
-								sprintf (buffer, "mosquitto_pub -t %s -m \"%c\"", item->channel, result);
+								sprintf (buffer, "mosquitto_pub -t %s -m \"%d\"", item->channel, result);
 								system(buffer);
 							}
 							break;
