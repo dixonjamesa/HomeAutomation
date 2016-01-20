@@ -104,7 +104,7 @@ class MyHANet: public HomeAutoNetwork
     sprintf(channel, "home/node%o/reset", this_node);
     SubscribeChannel( DT_TEXT, 202, channel); // we will be told to reset here
     sprintf(channel, "home/node%o/sendsetup", this_node);
-    RegisterChannel( DT_BOOL, 200, &resendsetup, 0, channel, _restart); // use this to prompt that we still aren't set up yet
+    RegisterChannel( DT_BYTE, 200, &resendsetup, 0, channel, _restart); // use this to prompt that we still aren't set up yet
     sprintf(channel, "home/node%o/status", this_node);
     RegisterChannel( DT_TEXT, 101, StatusMessage, channel, _restart); // common status reporting method
     allInitialised = false;
@@ -123,7 +123,7 @@ void setup(void)
   SPI.begin();
   radio.begin();
   delay(5);
-  RFNetwork.begin(120, this_node);
+  RFNetwork.begin(90, this_node);
   radio.setRetries(8,11);
   RFNetwork.txTimeout = 529;
   
