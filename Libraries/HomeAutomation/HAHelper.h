@@ -1,5 +1,5 @@
 #define WAKE_RETRY_TIMEOUT 5000
-#define SUBS_RETRY_TIMEOUT 500
+#define SUBS_RETRY_TIMEOUT 600
 
 // Commmon status buffer
 char StatusMessage[96];
@@ -279,7 +279,7 @@ class HomeAutoNetwork
 			Serial.print("OK.\n"); 
 		}
 		
-		// Send a MSG_DATA to the controller, of specified size, reverting to originalvalue if not sent
+		// Send a MSG_DATA to the controller, of specified size, reverting to original value if not sent
 		bool sendDataMessage(HANWatcher *w, void *originalvalue, int size)
 		{
 			Serial.print("Value changed on code ");
