@@ -104,6 +104,15 @@ bool SensorList::StrikeNode(int nodeid)
 		}
 	}
 	if(logfile) fprintf(logfile,"Strike on node %o failed to find registered node\n", nodeid);
+	// send an IDENTIFY message to tell this node we don't know who it is
+	int retries = 4;
+	RF24NetworkHeader txheader(nodeid);
+	txheader.type = MSG_IDENTIFY;
+	while ( retries-- > 0 && !network.write(txheader, NULL, 0))
+	{
+		delay(50);
+	}
+
 	return false;
 }
 
@@ -309,7 +318,7 @@ int main(int argc, char** argv)
 	radio.begin();
 	radio.setRetries(11,15);
 	delay(5);
-	network.begin(90, 0); // we are the master, node 0
+	network.begin(120, 0); // we are the master, node 0
 	network.txTimeout = 500;
 	
 	MyMessageMap = new MessageMap();
@@ -380,7 +389,7 @@ int main(int argc, char** argv)
 					{
 						sprintf(tbuffer, "AWAKEACK from node %o, ", header.from_node);
 						strcat(strbuffer, tbuffer);
-						int retries = 5;
+						int retries = 4;
 						// not present, so tell the node...
 						RF24NetworkHeader txheader(header.from_node);
 						txheader.type = MSG_IDENTIFY;
@@ -391,11 +400,12 @@ int main(int argc, char** argv)
 						}
 						if( retries <= 0 )
 						{
-							strcat(strbuffer,"UNKNOWN response failed\n");
+							strcat(strbuffer,"MSG_IDENTIFY response failed\n");
 						}
 						else
 						{
-							strcat(strbuffer,"Sent UNKNOWN in reply\n");
+							strcat(strbuffer,"Sent MSG_IDENTIFY in reply\n");
+							#if false
 							// add this sensor (removes any messages stored previously for this node...)
 							MySensors->AddSensor(header.from_node);
 							char buffer[128];
@@ -405,6 +415,7 @@ int main(int argc, char** argv)
 							strcat(strbuffer,"\n");
 							
 							system(buffer);
+							#endif
 						}
 					}
 				break;

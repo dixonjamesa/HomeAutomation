@@ -80,7 +80,9 @@ void MessageMap::RemoveAll(uint16_t nodeid)
 		{
 			if( !mi->isreg )
 			{
-				mosquittoBroker->unsubscribe(0, mi->channel);
+				//mosquittoBroker->unsubscribe(0, mi->channel);
+				// NEED TO CHECK IF ANYBODY ELSE IS ACTUALLY STILL SUBSCRIBED
+				// SO FOR NOW, JUST DON'T BOTHER TIDYING UP THE SUBSCRIPTION
 			}
 			delete mi;
 			iterator = all.erase(iterator);
