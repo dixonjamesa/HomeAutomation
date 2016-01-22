@@ -55,6 +55,8 @@ class MyHANet: public HomeAutoNetwork
         RegisterChannel( DT_TOGGLE, 102, &dummy, 0, message->data, false ); // so we can send messages on this code
         //RegisterChannel( DT_BOOL, 102, &dummy, 1, message->data, false ); // so we can send messages on this code
         allInitialised = true;
+        strcpy(StatusMessage, "OK. Attached to ");
+        strcat(StatusMessage, message->data);
       break;
       case 202: // reset
         // all we need to do is re-register the channels...
@@ -72,6 +74,7 @@ class MyHANet: public HomeAutoNetwork
         Serial.print(toggleState);
         Serial.println("}");
         digitalWrite(outputPin, toggleState);
+        lightOffDelay=0; // cancel any pending switch off
       break;
       default:
         Serial.print("Received unexpected code ");
@@ -99,15 +102,17 @@ class MyHANet: public HomeAutoNetwork
   void InitialiseMessaging(bool _restart=false)
   {
     char channel[64];
+    RegisterChannel( DT_TEXT, 101, StatusMessage, channel, _restart); // common status reporting method
+    strcpy(StatusMessage, "Initialising...");
     sprintf(channel, "home/node%o/monitor", this_node);
     SubscribeChannel( DT_TEXT, 201, channel); // we will be told what channel to do switching for
     sprintf(channel, "home/node%o/reset", this_node);
     SubscribeChannel( DT_TEXT, 202, channel); // we will be told to reset here
     sprintf(channel, "home/node%o/sendsetup", this_node);
-    RegisterChannel( DT_BOOL, 200, &resendsetup, 0, channel, _restart); // use this to prompt that we still aren't set up yet
+    RegisterChannel( DT_BYTE, 200, &resendsetup, 0, channel, _restart); // use this to prompt that we still aren't set up yet
     sprintf(channel, "home/node%o/status", this_node);
-    RegisterChannel( DT_TEXT, 101, StatusMessage, channel, _restart); // common status reporting method
     allInitialised = false;
+    strcpy(StatusMessage, "Waiting for monitor...");
   }
 
 } HANetwork(&RFNetwork);
@@ -123,7 +128,7 @@ void setup(void)
   SPI.begin();
   radio.begin();
   delay(5);
-  RFNetwork.begin(120, this_node);
+  RFNetwork.begin(90, this_node);
   radio.setRetries(8,11);
   RFNetwork.txTimeout = 529;
   
