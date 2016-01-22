@@ -76,7 +76,7 @@ void setup(void)
   SPI.begin();
   radio.begin();
   delay(5);
-  RFNetwork.begin(90, this_node);
+  RFNetwork.begin(120, this_node);
   radio.setRetries(8,11);
   RFNetwork.txTimeout = 553;
   HANetwork.Begin(this_node);

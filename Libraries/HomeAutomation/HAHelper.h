@@ -107,14 +107,7 @@ class HomeAutoNetwork
 					memcpy(&cachedvalue, item->data.data, 1);
 					if( fabs(cachedvalue-nowvalue) > item->delta )
 					{
-						if( item->data.type == DT_TOGGLE )
-						{
-							// data is irrelevant.
-						}
-						else
-						{
-							memcpy(item->data.data, &nowvalue, 1); // copy the new value into the message data
-						}
+						memcpy(item->data.data, &nowvalue, 1); // copy the new value into the message data
 						sendDataMessage(item, &cachedvalue, 1);
 					}
 				}
@@ -185,7 +178,9 @@ class HomeAutoNetwork
 			}
 			else if( header.type == MSG_IDENTIFY)
 			{
-				// result of a failed AWAKEACK - we need to re-register our stuff
+				TheNetwork->read(header, &message, sizeof(message));
+				// result of a failed AWAKEACK - we need to tell the sensor to re-register its stuff
+				sendAwake(MSG_AWAKE, NodeID);
 				OnResetNeeded();
 			}
 			else if (header.type == MSG_DATA) 

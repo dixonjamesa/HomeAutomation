@@ -31,6 +31,7 @@ bool resendsetup=false;
 bool dummy=false; // send toggle message whenever this changes
 unsigned long touchTime;
 unsigned long lightOffDelay = 0;
+byte lightTimeout=3;
 
 // Radio with CE & CSN pins
 RF24 radio(RFCE, RFCSN);
@@ -52,8 +53,8 @@ class MyHANet: public HomeAutoNetwork
         Serial.print("Been told to monitor channel ");
         Serial.println(message->data);
         SubscribeChannel( DT_BOOL, outputPin, message->data );
-        RegisterChannel( DT_TOGGLE, 102, &dummy, 0, message->data, false ); // so we can send messages on this code
-        //RegisterChannel( DT_BOOL, 102, &dummy, 1, message->data, false ); // so we can send messages on this code
+        //RegisterChannel( DT_TOGGLE, 102, &dummy, 0, message->data, false ); // so we can send messages on this code
+        RegisterChannel( DT_BOOL, 102, &dummy, 1, message->data, false ); // so we can send messages on this code
         allInitialised = true;
         strcpy(StatusMessage, "OK. Attached to ");
         strcat(StatusMessage, message->data);
@@ -63,6 +64,9 @@ class MyHANet: public HomeAutoNetwork
         Serial.println("Reset");
         InitialiseMessaging(true);
       break;
+      case 203: // timeout
+        // set the timeout...
+        lightTimeout = (byte)message->data[0];
       case outputPin:
         toggleState = (bool)message->data[0];
         Serial.print("Data received from node ");
@@ -102,15 +106,17 @@ class MyHANet: public HomeAutoNetwork
   void InitialiseMessaging(bool _restart=false)
   {
     char channel[64];
+    sprintf(channel, "home/node%o/status", this_node);
     RegisterChannel( DT_TEXT, 101, StatusMessage, channel, _restart); // common status reporting method
     strcpy(StatusMessage, "Initialising...");
     sprintf(channel, "home/node%o/monitor", this_node);
     SubscribeChannel( DT_TEXT, 201, channel); // we will be told what channel to do switching for
     sprintf(channel, "home/node%o/reset", this_node);
     SubscribeChannel( DT_TEXT, 202, channel); // we will be told to reset here
+    sprintf(channel, "home/node%o/timeout", this_node);
+    SubscribeChannel( DT_BYTE, 203, channel); // we will be told what timeout to use
     sprintf(channel, "home/node%o/sendsetup", this_node);
     RegisterChannel( DT_BYTE, 200, &resendsetup, 0, channel, _restart); // use this to prompt that we still aren't set up yet
-    sprintf(channel, "home/node%o/status", this_node);
     allInitialised = false;
     strcpy(StatusMessage, "Waiting for monitor...");
   }
@@ -128,7 +134,7 @@ void setup(void)
   SPI.begin();
   radio.begin();
   delay(5);
-  RFNetwork.begin(90, this_node);
+  RFNetwork.begin(120, this_node);
   radio.setRetries(8,11);
   RFNetwork.txTimeout = 529;
   
@@ -168,7 +174,7 @@ void loop()
   if( lightOffDelay > 0 )
   {
       // flash to show we're waiting to turn the light off
-      digitalWrite(senseFb, !bitRead(PORTD,senseFb));
+      digitalWrite(senseFb, !digitalRead(senseFb));
       if( lightOffDelay < loopTime )
       {
         lightOffDelay = 0;
@@ -200,12 +206,12 @@ void Latch(long value)
       // send a toggle message
       toggleState = !toggleState;
       digitalWrite(outputPin, toggleState); // do this here for maximum responsiveness
-      dummy = !dummy;// trigger send of the togglemessage
-      //message_data msg;
-      //msg.code = 102;
-      //msg.type = DT_BOOL;
-      //memcpy(msg.data, &toggleState, 1);
-      //HANetwork.SendMessage(&msg, 1);
+      //dummy = !dummy;// trigger send of the togglemessage
+      message_data msg;
+      msg.code = 102;
+      msg.type = DT_BOOL;
+      memcpy(msg.data, &toggleState, 1);
+      HANetwork.SendMessage(&msg, 1);
     }
     touchTime = 0;
     digitalWrite(senseFb, latchState);
@@ -213,9 +219,10 @@ void Latch(long value)
   else if( latchState == true )
   {
     touchTime += loopTime;
+    Serial.println(touchTime);
     if( touchTime > 1000 )
     {
-      lightOffDelay = 3000;
+      lightOffDelay = lightTimeout*1000;
     }
   }
 }
