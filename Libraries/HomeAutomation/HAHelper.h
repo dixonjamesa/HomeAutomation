@@ -2,13 +2,20 @@
 #define SUBS_RETRY_TIMEOUT 600
 
 // Commmon status buffer
-char StatusMessage[96];
+char StatusMessage[48];
 
 struct HANWatcher
 {
 	float delta;
 	void *watch;
-	message_data data;
+	message_data msg;
+};
+
+struct MessageQ
+{
+	message_subscribe msg;
+	int size;
+	int type;
 };
 
 class HomeAutoNetwork
@@ -20,18 +27,42 @@ class HomeAutoNetwork
 		int WatchedItems = 0;
 		unsigned long updateTimer = 0;
 		uint16_t NodeID; 
+		bool awakeOK = false;
+		int queueSize = 0;
+		#define MAXQUEUESIZE 6
+		MessageQ messageQueue[MAXQUEUESIZE];
 	public:
 		HomeAutoNetwork(RF24Network *net):
 		TheNetwork(net)
 		{
 		}
 		
+		bool QueueEmpty()
+		{
+			return queueSize == 0;
+		}
+		
 		void Begin(const uint16_t node_id)
 		{
 			NodeID = node_id;
-			Serial.print("Hello world"); 
-			Serial.print("...");
-			sendAwake(MSG_AWAKE, node_id);
+			TestAwake(0);
+		}
+		
+		// Perform an update step - check for messages, and changes on registered data variables...
+		void Update(unsigned long _time)
+		{
+			TestAwake( _time );
+			if( awakeOK && ProcessQueue() )
+			{
+				// first check for incoming messages...
+				CheckForMessages();
+				// now look to see if any of the variables we're watching have changed...
+				CheckForUpdates();
+			}
+			else
+			{
+				Serial.println("Waiting on queue...");
+			}
 		}
 		
 		virtual void OnMessage(uint16_t from_node, message_data *_message) {}
@@ -73,97 +104,127 @@ class HomeAutoNetwork
 		  regsub(&header, t, i, c);
 		}
 		
-		// Perform an update step - check for messages, and changes on registered data variables...
-		void Update(unsigned long _time)
+		// force a particular data send, even if it's not changed
+		bool ForceSendRegisteredChannel(int _code)
 		{
-			// first check for incoming messages...
-			CheckForMessages();
-			// now look to see if any of the variables we're watching have changed...
 			for( int i=0; i < WatchedItems ; i++ )
 			{
 				HANWatcher *item = WatchingItems[i];
-				switch( item->data.type )
+				if(item->msg.code == _code)
 				{
-				case DT_FLOAT:
-				{
-					float cachedvalue;
-					float nowvalue;
-					memcpy(&nowvalue, item->watch, 4);
-					memcpy(&cachedvalue, item->data.data, 4);
-					if( fabs(cachedvalue-nowvalue) > item->delta )
-					{
-						memcpy(item->data.data, &nowvalue, 4); // copy the new value into the message data
-						sendDataMessage(item, &cachedvalue, 4);
-					}
-				}
-				break;
-				case DT_BOOL:
-				case DT_BYTE:
-				case DT_TOGGLE:
-				{
-					byte cachedvalue;
-					byte nowvalue;
-					memcpy(&nowvalue, item->watch, 1);
-					memcpy(&cachedvalue, item->data.data, 1);
-					if( fabs(cachedvalue-nowvalue) > item->delta )
-					{
-						memcpy(item->data.data, &nowvalue, 1); // copy the new value into the message data
-						sendDataMessage(item, &cachedvalue, 1);
-					}
-				}
-				break;
-				case DT_INT16:
-				{
-					int cachedvalue;
-					int nowvalue;
-					memcpy(&nowvalue, item->watch, 2);
-					memcpy(&cachedvalue, item->data.data, 2);
-					if( fabs(cachedvalue-nowvalue) > item->delta )
-					{
-						memcpy(item->data.data, &nowvalue, 2); // copy the new value into the message data
-						sendDataMessage(item, &cachedvalue, 2);
-					}
-				}
-				break;
-				case DT_INT32:
-				{
-					long cachedvalue;
-					long nowvalue;
-					memcpy(&nowvalue, item->watch, 4);
-					memcpy(&cachedvalue, item->data.data, 4);
-					if( fabs(cachedvalue-nowvalue) > item->delta )
-					{
-						memcpy(item->data.data, &nowvalue, 4); // copy the new value into the message data
-						sendDataMessage(item, &cachedvalue, 4);
-					}
-				}
-				break;
-				case DT_TEXT:
-				{
-					char *cachedvalue = item->data.data;
-					char *nowvalue = (char *)item->watch;
-					if( strcmp(cachedvalue, nowvalue) )
-					{
-						strcpy(item->data.data, nowvalue); // copy the new value into the message data
-						sendDataMessage(item, &cachedvalue, strlen(nowvalue)+1);
-					}
-				}
-				break;
-				default:
-					Serial.print("Unsupported data type registered: ");
-					Serial.println(item->data.type);
-				break;
+					CheckWatcher(item, true);
+					return true;
 				}
 			}
-			updateTimer += _time;
-			if( updateTimer > 30*1000 ) // 30 secs
+			Serial.print("Force send of unregistered code ");
+			Serial.println(_code);
+			return false;
+		}
+		bool ForceSendRegisteredChannel(void * _data)
+		{
+			for( int i=0; i < WatchedItems ; i++ )
 			{
-				Serial.print("sending up check.");
-				sendAwake(MSG_AWAKEACK, NodeID);
-				updateTimer = 0;
+				HANWatcher *item = WatchingItems[i];
+				if(item->watch == _data) // same watched pointer?
+				{
+					CheckWatcher(item, true);
+					return true;
+				}
+			}
+			Serial.println("Force send of unregistered void*");
+			return false;
+		}
+		
+		// see if any of the variables that have been registered have changed
+		// and transmit the data as required
+		void CheckForUpdates()
+		{
+			for( int i=0; i < WatchedItems ; i++ )
+			{
+				HANWatcher *item = WatchingItems[i];
+				CheckWatcher(item, false);
+			}
+		}			
+		
+		// check an individual watcher, and send data if necessary		
+		void CheckWatcher(HANWatcher *item, bool _forceSend)
+		{
+			switch( item->msg.type )
+			{
+			case DT_FLOAT:
+			{
+				float cachedvalue;
+				float nowvalue;
+				memcpy(&nowvalue, item->watch, 4);
+				memcpy(&cachedvalue, item->msg.data, 4);
+				if( _forceSend || fabs(cachedvalue-nowvalue) > item->delta )
+				{
+					memcpy(item->msg.data, &nowvalue, 4); // copy the new value into the message data
+					sendDataMessage(item, &cachedvalue, 4);
+				}
+			}
+			break;
+			case DT_BOOL:
+			case DT_BYTE:
+			case DT_TOGGLE:
+			{
+				byte cachedvalue;
+				byte nowvalue;
+				memcpy(&nowvalue, item->watch, 1);
+				memcpy(&cachedvalue, item->msg.data, 1);
+				if( _forceSend || fabs(cachedvalue-nowvalue) > item->delta )
+				{
+					memcpy(item->msg.data, &nowvalue, 1); // copy the new value into the message data
+					sendDataMessage(item, &cachedvalue, 1);
+				}
+			}
+			break;
+			case DT_INT16:
+			{
+				int cachedvalue;
+				int nowvalue;
+				memcpy(&nowvalue, item->watch, 2);
+				memcpy(&cachedvalue, item->msg.data, 2);
+				if( _forceSend || fabs(cachedvalue-nowvalue) > item->delta )
+				{
+					memcpy(item->msg.data, &nowvalue, 2); // copy the new value into the message data
+					sendDataMessage(item, &cachedvalue, 2);
+				}
+			}
+			break;
+			case DT_INT32:
+			{
+				long cachedvalue;
+				long nowvalue;
+				memcpy(&nowvalue, item->watch, 4);
+				memcpy(&cachedvalue, item->msg.data, 4);
+				if( _forceSend || fabs(cachedvalue-nowvalue) > item->delta )
+				{
+					memcpy(item->msg.data, &nowvalue, 4); // copy the new value into the message data
+					sendDataMessage(item, &cachedvalue, 4);
+				}
+			}
+			break;
+			case DT_TEXT:
+			{
+				char *cachedvalue = item->msg.data;
+				char *nowvalue = (char *)item->watch;
+				if( _forceSend || strcmp(cachedvalue, nowvalue) )
+				{
+					strcpy(item->msg.data, nowvalue); // copy the new value into the message data
+					sendDataMessage(item, &cachedvalue, strlen(nowvalue)+1);
+				}
+			}
+			break;
+			default:
+				Serial.print("Unsupported data type registered: ");
+				Serial.println(item->msg.type);
+			break;
 			}
 		}
 		
+		// see if there are any RF24 network messages waiting for us, 
+		// and handle them as required
 		void CheckForMessages()
 		{
 		  while (TheNetwork->available()) 
@@ -204,14 +265,66 @@ class HomeAutoNetwork
 			}
 		  }
 		}
+
+		// Return number of bytes required to send message correctly
+		int DataSizeOfMessage( message_data *_data )
+		{
+			switch( _data->type )
+			{
+				case DT_FLOAT:
+				case DT_INT32:
+					return 4;
+				case DT_BOOL:
+				case DT_BYTE:
+				case DT_TOGGLE:
+					return 1;
+				case DT_INT16:
+					return 2;
+				case DT_TEXT:
+					return strlen(_data->data)+1;
+			}
+			return 0;
+		}
 		
+		// Send a data message
 		int SendMessage(message_data *_message, int _datasize)
 		{
 			RF24NetworkHeader writeHeader(0);
 			writeHeader.type = MSG_DATA;
 			return TheNetwork->write(writeHeader, _message, _datasize+2);
 		}
+		
 	private:
+		// make sure we are registered awake...
+		void TestAwake(unsigned int _time)
+		{
+			if( !awakeOK )
+			{
+				awakeOK = sendAwake(MSG_AWAKE, NodeID);
+				if( awakeOK ) Serial.println("HANetwork awake"); else Serial.println("Failed to wake..."); 
+				return;
+			}
+			// timer 
+			updateTimer += _time;
+			if( updateTimer > 30*1000 ) // 30 secs
+			{
+				if( sendAwake(MSG_AWAKEACK, NodeID) )
+				{
+					// reset for another 30 (otherwise keep trying on next loop)
+					updateTimer = 0;
+					#if SERIALOUT
+					Serial.println("Up check OK.");
+					#endif
+				}
+				else
+				{
+					#if SERIALOUT
+					Serial.println("Up check FAIL.");
+					#endif
+				}
+			}
+		}
+		
 		void registerCommon(byte t, byte code, void *value, float delta, int size, const char *c, bool _restart)
 		{
 		  // register with the controller anyway - it has its own redundancy checking
@@ -223,7 +336,7 @@ class HomeAutoNetwork
 		  // first check to make sure the code is unique...
 		  for(int wid=0;wid<WatchedItems;wid++)
 		  {
-			if( WatchingItems[wid]->data.code == code )
+			if( WatchingItems[wid]->msg.code == code )
 			{
 				// bail
 				if( !_restart )
@@ -248,11 +361,11 @@ class HomeAutoNetwork
 		  if( WatchedItems > 1 ) delete WatchingItems;
 		  WatchingItems = newwatches;
 		  HANWatcher *w = new HANWatcher();
-		  w->data.type = t;
-		  w->data.code = code;
+		  w->msg.type = t;
+		  w->msg.code = code;
 		  w->delta = delta;
 		  w->watch = value;
-		  memcpy(w->data.data, value, size);
+		  memcpy(w->msg.data, value, size);
 		  WatchingItems[WatchedItems-1] = w;
 		}
 		void regsub(RF24NetworkHeader *header, byte t, byte code, const char *c)
@@ -265,48 +378,78 @@ class HomeAutoNetwork
 		  Serial.print(" using code ");
 		  Serial.print(code);
 		  Serial.print("...");
-		  while(!TheNetwork->write(*header, &mess, 2+1+strlen(c))) 
+		  if(!TheNetwork->write(*header, &mess, 2+1+strlen(c))) 
 		  {
-			Serial.print("."); 
-			delay(SUBS_RETRY_TIMEOUT);
-			TheNetwork->update();
+			Serial.print("FAIL. "); 
+			// add it to the queue...
+			if( queueSize < MAXQUEUESIZE )
+			{
+				Serial.print("Queuing... "); 
+				messageQueue[queueSize].msg = mess;
+				messageQueue[queueSize].size = 2+1+strlen(c);
+				messageQueue[queueSize].type = header->type;
+				queueSize++;
+				Serial.println("Queued.");
+			}
 		  }
-			Serial.print("OK.\n"); 
+		  else
+		  {
+			Serial.println("OK."); 
+		  }
+		}
+		
+		// try to send all queued messages
+		bool ProcessQueue()
+		{
+			RF24NetworkHeader header(0);
+			while( queueSize > 0 )
+			{
+				Serial.println("Processing queue...");
+				header.type = messageQueue[queueSize-1].type;
+				if( !TheNetwork->write( header, &messageQueue[queueSize-1].msg, messageQueue[queueSize-1].size ) )
+				{
+					// failed, so break out of loop
+					return false;
+				}
+				Serial.print("Queued message ");
+				Serial.print(queueSize);
+				Serial.print(" on channel ");
+				Serial.print(messageQueue[queueSize-1].msg.channel);
+				Serial.print(" using code ");
+				Serial.print(messageQueue[queueSize-1].msg.code);
+				Serial.println(" sent OK");
+				queueSize--;
+			}
+			return true;
 		}
 		
 		// Send a MSG_DATA to the controller, of specified size, reverting to original value if not sent
 		bool sendDataMessage(HANWatcher *w, void *originalvalue, int size)
 		{
 			Serial.print("Value changed on code ");
-			Serial.print(w->data.code);
+			Serial.print(w->msg.code);
 			Serial.print("... transmitting...");
-			if(SendMessage(&w->data, size)) 
+			if(SendMessage(&w->msg, size)) 
 			{
 				Serial.println("OK");
 			}
 			else
 			{
 				// copy old value back, so we try again...
-				memcpy(w->data.data, originalvalue, size);
+				memcpy(w->msg.data, originalvalue, size);
 				Serial.println("FAIL");
 			}
 		}
-		void sendAwake(byte _code, const uint16_t node_id)
+		bool sendAwake(byte _code, const uint16_t node_id)
 		{
 			char channel_root[32];
-			sprintf(channel_root,"home/node%o",node_id);
+			sprintf(channel_root,"n%o",node_id);
 			message_data mess;
 			mess.code = 0;
 			mess.type = DT_TEXT;
 			strcpy(mess.data, channel_root);
 			RF24NetworkHeader writeHeader(0);
 			writeHeader.type = _code;
-			while(!TheNetwork->write(writeHeader, &mess, 2+1+strlen(channel_root))) 
-			{
-				Serial.print("."); 
-				delay(WAKE_RETRY_TIMEOUT);
-				TheNetwork->update();
-			}
-			Serial.print("OK.\n"); 
+			return TheNetwork->write(writeHeader, &mess, 2+1+strlen(channel_root));
 		}
 };

@@ -23,13 +23,13 @@ struct message_subscribe
 {
 	unsigned char type; // DT_xxx
 	unsigned char code; // id to send with message
-	char channel[64]; // name
+	char channel[24]; // name
 };
 // Structure of our messages
 struct message_data {
 	unsigned char code;
 	unsigned char type; // DT_xxx
-	char data[64];
+	char data[24];
 };
 
 #endif

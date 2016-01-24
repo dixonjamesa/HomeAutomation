@@ -5,6 +5,8 @@
 #include <HAHelper.h>
 #include <CapacitiveSensor.h>
 
+bool allInitialised = false;
+
 // PIN Configuration:
 
 const byte senseTx = 3;
@@ -21,24 +23,21 @@ const uint16_t control_node = 0;
 // the touch sensor
 CapacitiveSensor CSensor = CapacitiveSensor(senseTx,senseRx);        // 10 megohm resistor between pins 4 & 2, pin 2 is sensor pin, add wire, foil
 
-//initialisation state
-bool allInitialised=false;
-
 // Switch states
 bool latchState=false;
 bool toggleState=false;
 bool resendsetup=false;
-bool dummy=false; // send toggle message whenever this changes
+bool dummy=false;
 unsigned long touchTime;
 unsigned long lightOffDelay = 0;
-byte lightTimeout=3;
+byte lightTimeout=30;
 
 // Radio with CE & CSN pins
 RF24 radio(RFCE, RFCSN);
 RF24Network RFNetwork(radio);
 
 // Time between checks (in ms)
-const unsigned long loopTime = 200;
+const unsigned long loopTime = 500;
 
 class MyHANet: public HomeAutoNetwork
 {
@@ -53,10 +52,10 @@ class MyHANet: public HomeAutoNetwork
         Serial.print("Been told to monitor channel ");
         Serial.println(message->data);
         SubscribeChannel( DT_BOOL, outputPin, message->data );
-        //RegisterChannel( DT_TOGGLE, 102, &dummy, 0, message->data, false ); // so we can send messages on this code
         RegisterChannel( DT_BOOL, 102, &dummy, 1, message->data, false ); // so we can send messages on this code
         allInitialised = true;
-        strcpy(StatusMessage, "OK. Attached to ");
+        Serial.println("Monitor setup done.");
+        strcpy(StatusMessage, "OK: ");
         strcat(StatusMessage, message->data);
       break;
       case 202: // reset
@@ -78,7 +77,10 @@ class MyHANet: public HomeAutoNetwork
         Serial.print(toggleState);
         Serial.println("}");
         digitalWrite(outputPin, toggleState);
-        lightOffDelay=0; // cancel any pending switch off
+        if( toggleState == false )
+        {
+          lightOffDelay=0; // cancel any pending switch off
+        }
       break;
       default:
         Serial.print("Received unexpected code ");
@@ -106,19 +108,18 @@ class MyHANet: public HomeAutoNetwork
   void InitialiseMessaging(bool _restart=false)
   {
     char channel[64];
-    sprintf(channel, "home/node%o/status", this_node);
-    RegisterChannel( DT_TEXT, 101, StatusMessage, channel, _restart); // common status reporting method
-    strcpy(StatusMessage, "Initialising...");
-    sprintf(channel, "home/node%o/monitor", this_node);
-    SubscribeChannel( DT_TEXT, 201, channel); // we will be told what channel to do switching for
-    sprintf(channel, "home/node%o/reset", this_node);
-    SubscribeChannel( DT_TEXT, 202, channel); // we will be told to reset here
-    sprintf(channel, "home/node%o/timeout", this_node);
-    SubscribeChannel( DT_BYTE, 203, channel); // we will be told what timeout to use
-    sprintf(channel, "home/node%o/sendsetup", this_node);
-    RegisterChannel( DT_BYTE, 200, &resendsetup, 0, channel, _restart); // use this to prompt that we still aren't set up yet
-    allInitialised = false;
     strcpy(StatusMessage, "Waiting for monitor...");
+    sprintf(channel, "n%o/status", this_node);
+    RegisterChannel( DT_TEXT, 101, StatusMessage, channel, _restart); // common status reporting method
+    sprintf(channel, "n%o/monitor", this_node);
+    SubscribeChannel( DT_TEXT, 201, channel); // we will be told what channel to do switching for
+    sprintf(channel, "n%o/reset", this_node);
+    SubscribeChannel( DT_TEXT, 202, channel); // we will be told to reset here
+    sprintf(channel, "n%o/timeout", this_node);
+    SubscribeChannel( DT_BYTE, 203, channel); // we will be told what timeout to use
+    sprintf(channel, "n%o/sendsetup", this_node);
+    RegisterChannel( DT_BYTE, 204, &resendsetup, 0, channel, _restart); // use this to prompt that we still aren't set up yet
+    allInitialised = false;
   }
 
 } HANetwork(&RFNetwork);
@@ -147,38 +148,45 @@ void setup(void)
   delay(50);
 
   HANetwork.InitialiseMessaging();
-  Serial.println("Initialised");
+  Serial.println("Setup complete.");
 }
 
 void loop() 
 {
   long total;  
+  total =  CSensor.capacitiveSensor(30);
+  Latch(total);
+
   // Update network data
   RFNetwork.update();
   HANetwork.Update(loopTime);
   
-  total =  CSensor.capacitiveSensor(30);
-  Latch(total);
   //Serial.println(total);
   // Wait a bit before we start over again
   delay(loopTime);
 
   if( !allInitialised )
   {
-    delay(400);
     toggleState = !toggleState;
     digitalWrite(outputPin, toggleState);
-    resendsetup = !resendsetup; // trigger a message
+    if( HANetwork.QueueEmpty() )
+    {
+      resendsetup = !resendsetup; // trigger a message
+    }
+    delay(400);
   }
 
   if( lightOffDelay > 0 )
   {
       // flash to show we're waiting to turn the light off
       digitalWrite(senseFb, !digitalRead(senseFb));
-      if( lightOffDelay < loopTime )
+      if( lightOffDelay <= loopTime )
       {
         lightOffDelay = 0;
-        
+        dummy = toggleState = false;
+        HANetwork.ForceSendRegisteredChannel(&dummy);
+        Serial.println("Timeout switch off");
+        digitalWrite(senseFb, LOW);
       }
       else
       {
@@ -192,37 +200,38 @@ long ThresholdLow = 120;
 void Latch(long value)
 {
   if(latchState == false && value > ThresholdHigh)
-  {
+  { // Hand has approached switch
     latchState = true;
     touchTime = 0;
     lightOffDelay = 0; // cancel an off delay
     digitalWrite(senseFb, latchState);
   }
   else if( latchState == true && value < ThresholdLow )
-  {
+  { // Hand has receded from switch
     latchState = false;
     if( lightOffDelay == 0 )
     {
-      // send a toggle message
       toggleState = !toggleState;
       digitalWrite(outputPin, toggleState); // do this here for maximum responsiveness
-      //dummy = !dummy;// trigger send of the togglemessage
-      message_data msg;
-      msg.code = 102;
-      msg.type = DT_BOOL;
-      memcpy(msg.data, &toggleState, 1);
-      HANetwork.SendMessage(&msg, 1);
+      dummy = toggleState;
+      HANetwork.ForceSendRegisteredChannel(&dummy);
     }
     touchTime = 0;
     digitalWrite(senseFb, latchState);
   }
   else if( latchState == true )
-  {
+  { // Hand is hovering at switch
     touchTime += loopTime;
-    Serial.println(touchTime);
     if( touchTime > 1000 )
     {
       lightOffDelay = lightTimeout*1000;
+      if( toggleState == false )
+      {
+        toggleState = !toggleState;
+        digitalWrite(outputPin, toggleState); // do this here for maximum responsiveness
+        dummy = toggleState;
+        HANetwork.ForceSendRegisteredChannel(&dummy);
+      }
     }
   }
 }
