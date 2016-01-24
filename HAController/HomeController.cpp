@@ -571,7 +571,7 @@ int main(int argc, char** argv)
 				}
 				break;
 			}
-			if( logfile) fprintf(logfile, strbuffer);
+			WriteLog(strbuffer);
 		}
 
 		// Check for messages on our subscribed channels
@@ -595,3 +595,14 @@ int main(int argc, char** argv)
 	return 0;
 }
 
+// write to logfile, if enabled...
+void WriteLog(const char *str, ...)
+{
+	if( logfile)
+	{
+		va_list args;
+		va_start(args, str);
+		fprintf(logfile, "DATATIME:");
+		fprintf(logfile, str, args);
+	}
+}
