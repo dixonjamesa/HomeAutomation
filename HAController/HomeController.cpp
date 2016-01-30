@@ -5,6 +5,7 @@
 #include <ctime>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
 #include <time.h>
 #include <list>
 #include "../Libraries/HomeAutomation/HACommon.h"
@@ -14,6 +15,20 @@
 FILE *logfile;
 char strbuffer[1024];
 char tbuffer[512];
+// write to logfile, if enabled...
+void WriteLog(const char *str, ...)
+{
+	if( logfile)
+	{
+	    std::time_t t = time(0);   // get time now
+		struct tm * now = localtime( & t );
+		va_list args;
+		va_start(args, str);
+		fprintf(logfile, "%d-%d-%d %2d:%2d:%2d: ", now->tm_year+1900,now->tm_mon, now->tm_mday, now->tm_hour, now->tm_min, now->tm_sec);
+		fprintf(logfile, str, args);
+	}
+}
+
 
 MessageMap *MyMessageMap;
 SensorList *MySensors;
@@ -46,7 +61,7 @@ void SensorList::AddSensor(int nodeid)
 	snd->nodeid = nodeid;
 	snd->strikes = 0;
 	NodeList.push_front(snd);
-	if(logfile) fprintf(logfile, "Added sensor node %o, strike %d\n", snd->nodeid, snd->strikes);
+	WriteLog( "Added sensor node %o, strike %d\n", snd->nodeid, snd->strikes);
 }
 void SensorList::RemoveSensor(int nodeid)
 {
@@ -74,7 +89,7 @@ bool SensorList::ConfirmSensor(int nodeid)
 		snd = *iterator;
 		if(snd->nodeid == nodeid )
 		{
-			if(logfile) fprintf(logfile, "Sensor node %o, says hi (AWAKEACK), strikes at %d\n", snd->nodeid, snd->strikes);
+			WriteLog( "Sensor node %o, says hi (AWAKEACK), strikes at %d\n", snd->nodeid, snd->strikes);
 			snd->strikes = 0;
 			return true;
 		}
@@ -93,17 +108,17 @@ bool SensorList::StrikeNode(int nodeid)
 			if( ++snd->strikes > 10 )
 			{
 				// looks like this node is AWOL
-				if(logfile) fprintf(logfile, "Sensor node %o unresponsive - 10 strikes. Removing\n", snd->nodeid);
+				WriteLog( "Sensor node %o unresponsive - 10 strikes. Removing\n", snd->nodeid);
 				MyMessageMap->RemoveAll(snd->nodeid);
 				NodeList.erase(iterator);
 				delete snd;						
 				return true;
 			}
-			if(logfile) fprintf(logfile,"%d strikes on node %o\n", snd->strikes, nodeid);
+			WriteLog("%d strikes on node %o\n", snd->strikes, nodeid);
 			return false;
 		}
 	}
-	if(logfile) fprintf(logfile,"Strike on node %o failed to find registered node\n", nodeid);
+	WriteLog("Strike on node %o failed to find registered node\n", nodeid);
 	// send an IDENTIFY message to tell this node we don't know who it is
 	int retries = 4;
 	RF24NetworkHeader txheader(nodeid);
@@ -119,7 +134,7 @@ bool SensorList::StrikeNode(int nodeid)
 // go round all the sensors seeing if they respond...
 void SensorList::CheckSensors()
 {
-	//if(logfile) fprintf(logfile, "Sensor Check...\n");
+	//WriteLog("Sensor Check...\n");
 	SensorNodeData *snd;
 	for( std::list<SensorNodeData *>::iterator iterator = NodeList.begin(), end = NodeList.end();
 			iterator != end; /* deliberately nothing */)
@@ -133,14 +148,14 @@ void SensorList::CheckSensors()
 			if( ++snd->strikes > 10 )
 			{
 				// looks like this node is AWOL
-				if(logfile) fprintf(logfile, "Sensor node %o unresponsive - 10 strikes. Removing\n", snd->nodeid);
+				WriteLog( "Sensor node %o unresponsive - 10 strikes. Removing\n", snd->nodeid);
 				MyMessageMap->RemoveAll(snd->nodeid);
 				iterator = NodeList.erase(iterator);
 				delete snd;						
 			}
 			else
 			{
-				if(logfile) fprintf(logfile, "lost sensor node %o, strike %d\n", snd->nodeid, snd->strikes);
+				WriteLog( "lost sensor node %o, strike %d\n", snd->nodeid, snd->strikes);
 				iterator++;
 			}
 		}
@@ -148,7 +163,7 @@ void SensorList::CheckSensors()
 		{
 			if( snd->strikes > 0 )
 			{
-				if(logfile) fprintf(logfile, "recovered sensor node %o\n", snd->nodeid);
+				WriteLog( "recovered sensor node %o\n", snd->nodeid);
 				snd->strikes = 0;
 			}
 			iterator++;
@@ -156,9 +171,9 @@ void SensorList::CheckSensors()
 	}
 }
 
-void MyMosquitto::on_connect (int rc) { fprintf(logfile, "Connected to Mosquitto\n"); }
+void MyMosquitto::on_connect (int rc) { WriteLog( "Connected to Mosquitto\n"); }
 
-void MyMosquitto::on_disconnect () { fprintf(logfile, "Disconnected\n"); }
+void MyMosquitto::on_disconnect () { WriteLog( "Disconnected\n"); }
 
 
 void MyMosquitto::on_message(const struct mosquitto_message* mosqmessage) 
@@ -200,7 +215,7 @@ void MyMosquitto::on_message(const struct mosquitto_message* mosqmessage)
 				{	// warn if data wasn't strictly 0 or 1
 					sprintf(tbuffer, "Unknown bool state: %s\n", (char *)mosqmessage->payload);
 					strcat(strbuffer, tbuffer);
-					if( logfile) fprintf(logfile, strbuffer);
+					WriteLog( strbuffer);
 					return;
 				}
 				datamessage = (message_data){ item->code, DT_BOOL, state};
@@ -255,7 +270,7 @@ void MyMosquitto::on_message(const struct mosquitto_message* mosqmessage)
 			default:
 				sprintf(tbuffer, "Unsupported data type: %i\n", item->type);
 				strcat(strbuffer, tbuffer);
-				if( logfile) fprintf(logfile, strbuffer);
+				WriteLog( strbuffer);
 				return;
 		}
 		// Send message on RF24 network
@@ -278,7 +293,7 @@ void MyMosquitto::on_message(const struct mosquitto_message* mosqmessage)
 			queuedMessages.push_front( dcopy );
 		}
 	}
-	if( logfile) fprintf(logfile, strbuffer);
+	WriteLog(strbuffer);
 }
 void MyMosquitto::ProcessQueue()
 {
@@ -291,14 +306,14 @@ void MyMosquitto::ProcessQueue()
 		if (network.write(header, &mess->message, mess->datasize))
 		{
 			// all good - remove the queued message
-			if(logfile) fprintf(logfile, "Queued message sent to node %o\n", mess->nodeid);
+			WriteLog( "Queued message sent to node %o\n", mess->nodeid);
 			iterator = queuedMessages.erase(iterator);
 			delete mess;
 		}
 		else
 		{
 			// couldn't send, so just leave message in the queue...
-			if(logfile) fprintf(logfile, "Queue send fail to node %o\n", mess->nodeid);
+			WriteLog( "Queue send fail to node %o\n", mess->nodeid);
 			if( MySensors->StrikeNode(mess->nodeid) )
 			{
 				iterator = queuedMessages.erase(iterator);
@@ -337,14 +352,14 @@ int main(int argc, char** argv)
 	{
 		//----- FILE EXISTS -----
 		printf("Logging started\n");
-		fprintf(logfile,"Logging started\n");
+		WriteLog("Logging started\n");
 	}
 	else
 	{
 		//----- FILE NOT FOUND -----
 		printf("failed to start logging\n");
 	}
-	if(logfile) fprintf(logfile, "Listening...\n");
+	WriteLog( "Listening...\n");
 	while (true)
 	{
 		// Get the latest network info
@@ -593,16 +608,4 @@ int main(int argc, char** argv)
 
 	// last thing we do before we end things
 	return 0;
-}
-
-// write to logfile, if enabled...
-void WriteLog(const char *str, ...)
-{
-	if( logfile)
-	{
-		va_list args;
-		va_start(args, str);
-		fprintf(logfile, "DATATIME:");
-		fprintf(logfile, str, args);
-	}
 }

@@ -18,18 +18,19 @@
 #define DT_TEXT 6
 #define DT_TOGGLE 7
 
+#define MAXDATALENGTH 24
 
 struct message_subscribe
 {
 	unsigned char type; // DT_xxx
 	unsigned char code; // id to send with message
-	char channel[24]; // name
+	char channel[MAXDATALENGTH]; // name
 };
 // Structure of our messages
 struct message_data {
 	unsigned char code;
 	unsigned char type; // DT_xxx
-	char data[24];
+	char data[MAXDATALENGTH];
 };
 
 #endif
