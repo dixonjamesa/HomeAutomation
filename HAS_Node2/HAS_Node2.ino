@@ -5,12 +5,31 @@
 #include <HAHelper.h>
 #include <DHT.h>
 
+  static const byte digitCodeMap[] = {
+    B00111111, // 0
+    B00000110, // 1
+    B01011011, // 2
+    B01001111, // 3
+    B01100110, // 4
+    B01101101, // 5
+    B01111101, // 6
+    B00000111, // 7
+    B01111111, // 8
+    B01101111, // 9
+    B00000000, // BLANK
+    B01000000    }; // DASH
 // PIN Configuration:
 
 const byte RFCE = 9; // transmitter
 const byte RFCSN = 10; // transmitter
-const byte outputPin1 = 6;
-const byte outputPin2 = 7;
+const byte SRData = 6;
+const byte SRLatch = 7;
+const byte SRClock = 8;
+const byte Digit1 = A1;
+const byte Digit2 = A2;
+const byte Digit3 = A3;
+const byte Digit4 = A4;
+
 const byte LDRPin = A7;
 const byte motionPin = 2;
 const byte switchPin = 5;
@@ -53,8 +72,7 @@ class MyHANet: public HomeAutoNetwork
       case 202: // reset
         Serial.println(F("Reset"));
       break;
-      case outputPin1:
-      case outputPin2:
+      case 1:
         toggleState = (bool)message->data[0];
         Serial.print(F("Data received from node "));
         Serial.print(from_node);
@@ -133,8 +151,13 @@ void setup(void)
   
   HANetwork.Begin(this_node);
 
-  pinMode(outputPin1, OUTPUT);
-  pinMode(outputPin2, OUTPUT);
+  pinMode(Digit1, OUTPUT);
+  pinMode(Digit2, OUTPUT);
+  pinMode(Digit3, OUTPUT);
+  pinMode(Digit4, OUTPUT);
+  pinMode(SRData, OUTPUT);
+  pinMode(SRClock, OUTPUT);
+  pinMode(SRLatch, OUTPUT);
   pinMode(LDRPin, INPUT);
   pinMode(motionPin, INPUT);
   pinMode(switchPin, INPUT_PULLUP);
@@ -145,17 +168,34 @@ void setup(void)
   Serial.println(F("Initialised"));
 }
 
+unsigned long mils;
+
+void debugTime(char *str)
+{
+  /*
+  unsigned long now = millis();
+  int td = now-mils;
+  mils=now; 
+  Serial.print(str);
+  Serial.print(": ");
+  Serial.print(td);
+  Serial.print("; ");*/
+}
 void loop() 
 {
+  debugTime("Start");
   // Update network data
   RFNetwork.update();
+  debugTime("RFNetwork");
   HANetwork.Update(loopTime);
+  debugTime("HANetwork");
 
   if( !allInitialised && HANetwork.QueueEmpty() ) 
   {
     allInitialised = true;
     strcpy(StatusMessage, "OK.");
   }
+  debugTime("A1");
 
   // read our data pins...
   int raw = analogRead(LDRPin);
@@ -164,8 +204,22 @@ void loop()
   lightSensor = raw; // scaling through looking at readings.
   motionSensor = digitalRead(motionPin);
   temperature = dht.readTemperature();
-  humidity = dht.readHumidity();
-  digitalWrite(outputPin1, motionSensor);
+  //humidity = dht.readHumidity();
+  debugTime("A2");
+
+  if( !digitalRead(switchPin) )
+  {
+    for(int i=0;i<100;i++)
+    {
+      float td = temperature;
+      td = td/10;
+      int d1 = td;
+      int d2 = td*10-d1*10;
+      int d3 = td*100-d1*100-d2*10;
+      int d4=0;
+      displayData(digitCodeMap[d1], digitCodeMap[d2]+128,digitCodeMap[d3],digitCodeMap[d4]);
+    }
+  }
 /*
   Serial.print(temperature);
   Serial.print(F("deg, "));
@@ -175,6 +229,44 @@ void loop()
   Serial.print(F("MO, "));
   Serial.println(lightSensor);*/
   // Wait a bit before we start over again
-  delay(loopTime);
+  debugTime("End");
+  //Serial.println(".");
+}
+
+void selectDigit(byte d)
+{
+  digitalWrite(Digit1, d!=Digit1?HIGH:LOW);
+  digitalWrite(Digit2, d!=Digit2?HIGH:LOW);
+  digitalWrite(Digit3, d!=Digit3?HIGH:LOW);
+  digitalWrite(Digit4, d!=Digit4?HIGH:LOW);
+}
+
+void displayData(byte d1, byte d2, byte d3, byte d4)
+{
+  int dly=2;
+  digitalWrite(SRLatch, LOW);
+  shiftOut(SRData, SRClock, MSBFIRST, d4);
+  digitalWrite(SRLatch, HIGH);
+  selectDigit(Digit1);
+  delay(dly);
+  selectDigit(0);
+  digitalWrite(SRLatch, LOW);
+  shiftOut(SRData, SRClock, MSBFIRST, d3);
+  digitalWrite(SRLatch, HIGH);
+  selectDigit(Digit2);
+  delay(dly);
+  selectDigit(0);
+  digitalWrite(SRLatch, LOW);
+  shiftOut(SRData, SRClock, MSBFIRST, d2);
+  digitalWrite(SRLatch, HIGH);
+  selectDigit(Digit3);
+  delay(dly);
+  selectDigit(0);
+  digitalWrite(SRLatch, LOW);
+  shiftOut(SRData, SRClock, MSBFIRST, d1);
+  digitalWrite(SRLatch, HIGH);
+  selectDigit(Digit4);
+  delay(dly);
+  selectDigit(0);
 }
 
