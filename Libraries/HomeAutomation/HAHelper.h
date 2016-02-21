@@ -29,7 +29,7 @@ class HomeAutoNetwork
 		uint16_t NodeID; 
 		bool awakeOK = false;
 		int queueSize = 0;
-		#define MAXQUEUESIZE 6
+		#define MAXQUEUESIZE 8
 		MessageQ messageQueue[MAXQUEUESIZE];
 	public:
 		HomeAutoNetwork(RF24Network *net):
@@ -61,7 +61,7 @@ class HomeAutoNetwork
 			}
 			else
 			{
-				Serial.println("Waiting on queue...");
+				Serial.println(F("Waiting on queue..."));
 			}
 		}
 		
@@ -99,7 +99,7 @@ class HomeAutoNetwork
 		void SubscribeChannel(byte t, byte i, const char *c)
 		{
 		  RF24NetworkHeader header(0);
-		  Serial.print("Subscribing to channel:");
+		  Serial.print(F("Subscribing to channel:"));
 		  header.type = MSG_SUBSCRIBE;
 		  regsub(&header, t, i, c);
 		}
@@ -116,7 +116,7 @@ class HomeAutoNetwork
 					return true;
 				}
 			}
-			Serial.print("Force send of unregistered code ");
+			Serial.print(F("Force send of unregistered code "));
 			Serial.println(_code);
 			return false;
 		}
@@ -131,7 +131,7 @@ class HomeAutoNetwork
 					return true;
 				}
 			}
-			Serial.println("Force send of unregistered void*");
+			Serial.println(F("Force send of unregistered void*"));
 			return false;
 		}
 		
@@ -142,12 +142,17 @@ class HomeAutoNetwork
 			for( int i=0; i < WatchedItems ; i++ )
 			{
 				HANWatcher *item = WatchingItems[i];
-				CheckWatcher(item, false);
+				if( !CheckWatcher(item, false) )
+				{
+					Serial.print(F("Failed to check watcher "));
+					Serial.println(i);
+				}
+				
 			}
 		}			
 		
 		// check an individual watcher, and send data if necessary		
-		void CheckWatcher(HANWatcher *item, bool _forceSend)
+		bool CheckWatcher(HANWatcher *item, bool _forceSend)
 		{
 			switch( item->msg.type )
 			{
@@ -159,6 +164,8 @@ class HomeAutoNetwork
 				memcpy(&cachedvalue, item->msg.data, 4);
 				if( _forceSend || fabs(cachedvalue-nowvalue) > item->delta )
 				{
+					Serial.print(F("Float value: "));
+					Serial.print(nowvalue);
 					memcpy(item->msg.data, &nowvalue, 4); // copy the new value into the message data
 					sendDataMessage(item, &cachedvalue, 4);
 				}
@@ -174,6 +181,8 @@ class HomeAutoNetwork
 				memcpy(&cachedvalue, item->msg.data, 1);
 				if( _forceSend || fabs(cachedvalue-nowvalue) > item->delta )
 				{
+					Serial.print(F("Byte/bool value: "));
+					Serial.print(nowvalue);
 					memcpy(item->msg.data, &nowvalue, 1); // copy the new value into the message data
 					sendDataMessage(item, &cachedvalue, 1);
 				}
@@ -187,6 +196,8 @@ class HomeAutoNetwork
 				memcpy(&cachedvalue, item->msg.data, 2);
 				if( _forceSend || fabs(cachedvalue-nowvalue) > item->delta )
 				{
+					Serial.print(F("Int16 value: "));
+					Serial.print(nowvalue);
 					memcpy(item->msg.data, &nowvalue, 2); // copy the new value into the message data
 					sendDataMessage(item, &cachedvalue, 2);
 				}
@@ -200,6 +211,8 @@ class HomeAutoNetwork
 				memcpy(&cachedvalue, item->msg.data, 4);
 				if( _forceSend || fabs(cachedvalue-nowvalue) > item->delta )
 				{
+					Serial.print(F("Int32 value: "));
+					Serial.print(nowvalue);
 					memcpy(item->msg.data, &nowvalue, 4); // copy the new value into the message data
 					sendDataMessage(item, &cachedvalue, 4);
 				}
@@ -211,16 +224,19 @@ class HomeAutoNetwork
 				char *nowvalue = (char *)item->watch;
 				if( _forceSend || strcmp(cachedvalue, nowvalue) )
 				{
+					Serial.print(F("Text value: "));
+					Serial.print(nowvalue);
 					strcpy(item->msg.data, nowvalue); // copy the new value into the message data
 					sendDataMessage(item, &cachedvalue, strlen(nowvalue)+1);
 				}
 			}
 			break;
 			default:
-				Serial.print("Unsupported data type registered: ");
+				Serial.print(F("Unsupported data type registered: "));
 				Serial.println(item->msg.type);
-			break;
+				return false;
 			}
+			return true;
 		}
 		
 		// see if there are any RF24 network messages waiting for us, 
@@ -258,9 +274,9 @@ class HomeAutoNetwork
 			{
 			  // This is not a type we recognize
 			  TheNetwork->read(header, &message, sizeof(message));
-			  Serial.print("Unknown message ");
+			  Serial.print(F("Unknown message "));
 			  Serial.print(header.type);
-			  Serial.print(" received from node ");
+			  Serial.print(F(" received from node "));
 			  Serial.println(header.from_node);
 			}
 		  }
@@ -301,7 +317,7 @@ class HomeAutoNetwork
 			if( !awakeOK )
 			{
 				awakeOK = sendAwake(MSG_AWAKE, NodeID);
-				if( awakeOK ) Serial.println("HANetwork awake"); else Serial.println("Failed to wake..."); 
+				if( awakeOK ) Serial.println(F("HANetwork awake")); else Serial.println(F("Failed to wake...")); 
 				return;
 			}
 			// timer 
@@ -313,13 +329,13 @@ class HomeAutoNetwork
 					// reset for another 30 (otherwise keep trying on next loop)
 					updateTimer = 0;
 					#if SERIALOUT
-					Serial.println("Up check OK.");
+					Serial.println(F("Up check OK."));
 					#endif
 				}
 				else
 				{
 					#if SERIALOUT
-					Serial.println("Up check FAIL.");
+					Serial.println(F("Up check FAIL."));
 					#endif
 				}
 			}
@@ -327,9 +343,15 @@ class HomeAutoNetwork
 		
 		void registerCommon(byte t, byte code, void *value, float delta, int size, const char *c, bool _restart)
 		{
+			if( strlen(c) >= MAXDATALENGTH )
+			{
+				Serial.print(F("Channel name is too long: "));
+				Serial.println(c);
+			}
+			
 		  // register with the controller anyway - it has its own redundancy checking
 		  RF24NetworkHeader header(0);
-		  Serial.print("Registering channel:");
+		  Serial.print(F("Registering channel:"));
 		  header.type = MSG_REGISTER;
 		  regsub(&header, t, code, c);
 		  
@@ -341,7 +363,7 @@ class HomeAutoNetwork
 				// bail
 				if( !_restart )
 				{
-					Serial.print("ERROR: Already registered code ");
+					Serial.print(F("ERROR: Already registered code "));
 					Serial.println( code );
 				}
 				return;
@@ -351,7 +373,7 @@ class HomeAutoNetwork
 		  {
 		   // if we're restarting, then we should already have the watcher set up...
 		   // so we shouldn't get here, so let's warn the user...
-			Serial.print("WARNING: Unexpected: Restart triggered, but code not already present: ");
+			Serial.print(F("WARNING: Unexpected: Restart triggered, but code not already present: "));
 			Serial.println(code);
 		  }
 		  // add the watch
@@ -375,26 +397,26 @@ class HomeAutoNetwork
 		  mess.code = code;
 		  strcpy(mess.channel, c);
 		  Serial.print((char *)mess.channel); 
-		  Serial.print(" using code ");
+		  Serial.print(F(" using code "));
 		  Serial.print(code);
-		  Serial.print("...");
+		  Serial.print(F("..."));
 		  if(!TheNetwork->write(*header, &mess, 2+1+strlen(c))) 
 		  {
-			Serial.print("FAIL. "); 
+			Serial.print(F("FAIL. ")); 
 			// add it to the queue...
 			if( queueSize < MAXQUEUESIZE )
 			{
-				Serial.print("Queuing... "); 
+				Serial.print(F("Queuing... ")); 
 				messageQueue[queueSize].msg = mess;
 				messageQueue[queueSize].size = 2+1+strlen(c);
 				messageQueue[queueSize].type = header->type;
 				queueSize++;
-				Serial.println("Queued.");
+				Serial.println(F("Queued."));
 			}
 		  }
 		  else
 		  {
-			Serial.println("OK."); 
+			Serial.println(F("OK.")); 
 		  }
 		}
 		
@@ -404,20 +426,20 @@ class HomeAutoNetwork
 			RF24NetworkHeader header(0);
 			while( queueSize > 0 )
 			{
-				Serial.println("Processing queue...");
+				Serial.println(F("Processing queue..."));
 				header.type = messageQueue[queueSize-1].type;
 				if( !TheNetwork->write( header, &messageQueue[queueSize-1].msg, messageQueue[queueSize-1].size ) )
 				{
 					// failed, so break out of loop
 					return false;
 				}
-				Serial.print("Queued message ");
+				Serial.print(F("Queued message "));
 				Serial.print(queueSize);
-				Serial.print(" on channel ");
+				Serial.print(F(" on channel "));
 				Serial.print(messageQueue[queueSize-1].msg.channel);
-				Serial.print(" using code ");
+				Serial.print(F(" using code "));
 				Serial.print(messageQueue[queueSize-1].msg.code);
-				Serial.println(" sent OK");
+				Serial.println(F(" sent OK"));
 				queueSize--;
 			}
 			return true;
@@ -426,18 +448,18 @@ class HomeAutoNetwork
 		// Send a MSG_DATA to the controller, of specified size, reverting to original value if not sent
 		bool sendDataMessage(HANWatcher *w, void *originalvalue, int size)
 		{
-			Serial.print("Value changed on code ");
+			Serial.print(F(" changed on code "));
 			Serial.print(w->msg.code);
-			Serial.print("... transmitting...");
+			Serial.print(F("... transmitting..."));
 			if(SendMessage(&w->msg, size)) 
 			{
-				Serial.println("OK");
+				Serial.println(F("OK"));
 			}
 			else
 			{
 				// copy old value back, so we try again...
 				memcpy(w->msg.data, originalvalue, size);
-				Serial.println("FAIL");
+				Serial.println(F("FAIL"));
 			}
 		}
 		bool sendAwake(byte _code, const uint16_t node_id)
