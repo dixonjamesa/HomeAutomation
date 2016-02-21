@@ -25,7 +25,7 @@ void WriteLog(const char *str, ...)
 		va_list args;
 		va_start(args, str);
 		fprintf(logfile, "%d-%d-%d %2d:%2d:%2d: ", now->tm_year+1900,now->tm_mon, now->tm_mday, now->tm_hour, now->tm_min, now->tm_sec);
-		fprintf(logfile, str, args);
+		vfprintf(logfile, str, args);
 	}
 }
 
@@ -188,6 +188,7 @@ void MyMosquitto::on_message(const struct mosquitto_message* mosqmessage)
 	{
 		sprintf(tbuffer, "could not identify channel from: %s\n", mosqmessage->topic);
 		strcat(strbuffer, tbuffer);
+		WriteLog(strbuffer);
 		return;
 	}
 	sprintf(tbuffer, "matches %d items; ", matches);
@@ -420,17 +421,6 @@ int main(int argc, char** argv)
 						else
 						{
 							strcat(strbuffer,"Sent MSG_IDENTIFY in reply\n");
-							#if false
-							// add this sensor (removes any messages stored previously for this node...)
-							MySensors->AddSensor(header.from_node);
-							char buffer[128];
-							sprintf (buffer, "mosquitto_pub -t %s/wake -m 1", receipt.data);
-							strcat(strbuffer,"PUBLISH:");
-							strcat(strbuffer, buffer);
-							strcat(strbuffer,"\n");
-							
-							system(buffer);
-							#endif
 						}
 					}
 				break;
@@ -586,7 +576,7 @@ int main(int argc, char** argv)
 				}
 				break;
 			}
-			WriteLog(strbuffer);
+			if( *strbuffer != 0 ) WriteLog(strbuffer);
 		}
 
 		// Check for messages on our subscribed channels
