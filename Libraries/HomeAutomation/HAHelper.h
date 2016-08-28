@@ -324,19 +324,18 @@ class HomeAutoNetwork
 			updateTimer += _time;
 			if( updateTimer > 30*1000 ) // 30 secs
 			{
+				Serial.print(F("Update timer now "));
+				Serial.print(updateTimer);
+				Serial.print(F("..."));
 				if( sendAwake(MSG_AWAKEACK, NodeID) )
 				{
 					// reset for another 30 (otherwise keep trying on next loop)
 					updateTimer = 0;
-					#if SERIALOUT
 					Serial.println(F("Up check OK."));
-					#endif
 				}
 				else
 				{
-					#if SERIALOUT
 					Serial.println(F("Up check FAIL."));
-					#endif
 				}
 			}
 		}

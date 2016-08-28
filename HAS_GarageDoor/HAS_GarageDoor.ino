@@ -3,25 +3,34 @@
 #include <SPI.h>
 #include <HACommon.h>
 #include <HAHelper.h>
+#include <CapacitiveSensor.h>
 
-#define DOSERIAL 1
+// PIN Configuration:
 
-// Node 2 is a simple HUB node - nothing complicated, just used as a network message relay
 const byte RFCE = 9; // transmitter
 const byte RFCSN = 10; // transmitter
+const byte outputRollerDoorStatusPin = 2;
+const byte outputGarageDoorStatusPin = 3;
+const byte outputSwitchPin = 4;
+const byte inputRollerDoorPin = 5;
+const byte inputGarageDoorPin = 6;
 
 // Constants that identify this node and the node to send data to
-const uint16_t this_node = 002;
+const uint16_t this_node = 021; // second child node of node 1 (kitchen light hub)
 const uint16_t control_node = 0;
+
+// Switch states
+bool rollerDoorState=false;
+bool garageDoorState=false;
+bool switchState=false;
+bool resendsetup=false;
 
 // Radio with CE & CSN pins
 RF24 radio(RFCE, RFCSN);
 RF24Network RFNetwork(radio);
 
-bool allInitialised = false;
-
 // Time between checks (in ms)
-const unsigned long loopTime = 100;
+const unsigned long loopTime = 200;
 
 class MyHANet: public HomeAutoNetwork
 {
@@ -29,24 +38,22 @@ class MyHANet: public HomeAutoNetwork
   MyHANet(RF24Network *_net):HomeAutoNetwork(_net) {}
   virtual void OnMessage(uint16_t from_node, message_data *message)
   {
+    Serial.print("Received message ");
+    Serial.println(message->code);
     switch( message->code )
     {
       case 202: // reset
-        Serial.println(F("Reset"));
+        // all we need to do is re-register the channels...
+        Serial.println("Reset");
+        InitialiseMessaging(true);
       break;
-      case 1:
-        Serial.print(F("Data received from node "));
-        Serial.print(from_node);
-        // Check value and change the pin...
-        Serial.print(F(" {Code: "));
-        Serial.print(message->code);
-        Serial.print(F(", Value: "));
-        Serial.print(message->data[0]);
-        Serial.println(F("}"));
+      case outputGarageDoorStatusPin:
+      case outputRollerDoorStatusPin:
+      case outputSwitchPin:
         digitalWrite(message->code, (bool)message->data[0]);
       break;
       default:
-        Serial.print(F("Received unexpected code "));
+        Serial.print("Received unexpected code ");
         Serial.println(message->code);
       break;
     }
@@ -56,32 +63,32 @@ class MyHANet: public HomeAutoNetwork
   virtual void OnUnknown(uint16_t from_node, message_data *_message) 
   {
     // let's at least report the problem...
-    Serial.print(F("Message returned UNKNOWN: "));
+    Serial.print("Message returned UNKNOWN: ");
     Serial.println(_message->code);
-    if( allInitialised)
-    {
-      // assume it's because of lost signal, so just reset ourselves...
-      InitialiseMessaging(true);
-    }
   }
 
   // Controller has told us to reset
   virtual void OnResetNeeded()
   {
     // all we need to do is re-register the channels...
-    Serial.println(F("RESET"));
+    Serial.println("RESET");
     InitialiseMessaging(true);
   }
   
   void InitialiseMessaging(bool _restart=false)
   {
     char channel[64];
+    strcpy(StatusMessage, "Waiting for monitor...");
     sprintf(channel, "n%o/status", this_node);
     RegisterChannel( DT_TEXT, 101, StatusMessage, channel, _restart); // common status reporting method
-    strcpy(StatusMessage, "Initialising...");
+    sprintf(channel, "n%o/gdoor", this_node);
+    RegisterChannel( DT_BOOL, outputRollerDoorStatusPin, &rollerDoorState, 0, channel, _restart); // roller door state
+    sprintf(channel, "n%o/bdoor", this_node);
+    RegisterChannel( DT_BOOL, outputGarageDoorStatusPin, &garageDoorState, 0, channel, _restart); // back door state
+    sprintf(channel, "n%o/switch", this_node);
+    SubscribeChannel( DT_BOOL, outputSwitchPin, channel); // switch
     sprintf(channel, "n%o/reset", this_node);
     SubscribeChannel( DT_TEXT, 202, channel); // we will be told to reset here
-    allInitialised = false;
   }
 
 } HANetwork(&RFNetwork);
@@ -89,11 +96,9 @@ class MyHANet: public HomeAutoNetwork
 
 void setup(void)
 {
-#if DOSERIAL
   // Set up the Serial Monitor
   Serial.begin(9600);
   Serial.println("Start");
-#endif 
 
   // Initialize all radio related modules
   SPI.begin();
@@ -101,20 +106,23 @@ void setup(void)
   delay(5);
   RFNetwork.begin(120, this_node);
   radio.setRetries(8,11);
-  radio.setPALevel(RF24_PA_MAX);
-  RFNetwork.txTimeout = 483;
+  RFNetwork.txTimeout = 151;
   
   HANetwork.Begin(this_node);
+
+  pinMode(outputRollerDoorStatusPin, OUTPUT); // LED status
+  pinMode(outputGarageDoorStatusPin, OUTPUT); // LED status
+  pinMode(outputSwitchPin, OUTPUT); // Door trigger
+  pinMode(inputGarageDoorPin, INPUT); // Door status
+  pinMode(inputRollerDoorPin, INPUT); // Door status
+  pinMode(13, OUTPUT);
+
 
   delay(50);
 
   HANetwork.InitialiseMessaging();
-#if DOSERIAL
-  Serial.println(F("Initialised"));
-#endif
+  Serial.println("Setup complete.");
 }
-
-unsigned long mils;
 
 void loop() 
 {
@@ -122,13 +130,9 @@ void loop()
   RFNetwork.update();
   HANetwork.Update(loopTime);
 
-  if( !allInitialised )
-  {
-    if( HANetwork.QueueEmpty() ) 
-    {
-      allInitialised = true;
-      strcpy(StatusMessage, "OK.");
-    }
-  }
+  garageDoorState = digitalRead(inputGarageDoorPin);
+  rollerDoorState = digitalRead(inputRollerDoorPin);
+  // Wait a bit before we start over again
   delay(loopTime);
 }
+
