@@ -67,6 +67,7 @@ class HomeAutoNetwork
 		
 		virtual void OnMessage(uint16_t from_node, message_data *_message) {}
 		virtual void OnUnknown(uint16_t from_node, message_data *_message) {}
+		virtual void OnAwake(bool _success) {}
 		virtual void OnResetNeeded() {}
 
 		// Register that we want to transmit data on a channel
@@ -332,10 +333,12 @@ class HomeAutoNetwork
 					// reset for another 30 (otherwise keep trying on next loop)
 					updateTimer = 0;
 					Serial.println(F("Up check OK."));
+					OnAwake(true);
 				}
 				else
 				{
 					Serial.println(F("Up check FAIL."));
+					OnAwake(false);
 				}
 			}
 		}

@@ -4,7 +4,9 @@
 #include <HACommon.h>
 #include <HAHelper.h>
 
-#define SERIALOUT 0
+#define SERIALOUT 1
+
+bool allInitialised = false;
 
 // PIN Configuration:
 byte outputPin = 2;
@@ -59,16 +61,20 @@ class MyHANet: public HomeAutoNetwork
     Serial.println("RESET");
    #endif
     strcpy(StatusMessage, "Resetting");
-    InitialiseMessaging(true);
+    if(allInitialised)
+    {
+      InitialiseMessaging(true);
+    }
   }
   void InitialiseMessaging(bool _restart=false)
   {
-    SubscribeChannel( DT_BOOL, outputPin, "kitchen/light1");
+    SubscribeChannel( DT_BOOL, outputPin, "kitchen/lights/l1");
     RegisterChannel( DT_TEXT, 101, StatusMessage, "kitchen/hub/status", _restart); // common status reporting method
    #if SERIALOUT
     Serial.println("Initialised");
    #endif
-    strcpy(StatusMessage,"Initialised OK");
+    strcpy(StatusMessage,"Initialising");
+    allInitialised = false;
   }
 
 } HANetwork(&RFNetwork);
@@ -102,7 +108,15 @@ void loop()
   // Update network data
   RFNetwork.update();
   HANetwork.Update(interval);
-  
+
+  if( !allInitialised )
+  {
+    if( HANetwork.QueueEmpty() ) 
+    {
+      allInitialised = true;
+      strcpy(StatusMessage, "OK.");
+    }
+  }
   // Wait a bit before we start over again
   delay(interval);
 }
