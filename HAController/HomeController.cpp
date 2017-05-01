@@ -4,6 +4,8 @@
 #include <iostream>
 #include <ctime>
 #include <stdio.h>
+#include <unistd.h>
+#include <fcntl.h>
 #include <stdlib.h>
 #include <stdarg.h>
 #include <time.h>
@@ -26,6 +28,10 @@ void WriteLog(const char *str, ...)
 		va_start(args, str);
 		fprintf(logfile, "%d-%d-%d %2d:%2d:%2d: ", now->tm_year+1900,now->tm_mon, now->tm_mday, now->tm_hour, now->tm_min, now->tm_sec);
 		vfprintf(logfile, str, args);
+		
+		// and to console as well:
+		printf("%d-%d-%d %2d:%2d:%2d: ", now->tm_year+1900,now->tm_mon, now->tm_mday, now->tm_hour, now->tm_min, now->tm_sec);
+		vprintf(str, args);
 	}
 }
 
@@ -43,29 +49,39 @@ const unsigned long interval = 100;
 // Timer used to determine when to check nodes for still being present in network
 unsigned long timespan=0; 
 
+// add a node to our list
 void SensorList::AddSensor(int nodeid)
 {
 	SensorNodeData *snd;
+		
 	for( std::list<SensorNodeData *>::const_iterator iterator = NodeList.begin(), end = NodeList.end();
 			iterator != end; iterator++)
 	{
 		snd = *iterator;
 		if(snd->nodeid == nodeid )
 		{
-			// already in the list
+			// node is already in the list, so we should remove all the mapped messages,
+			// as we expect the node to send them again, since it's just sent it's AWAKE message
 			MyMessageMap->RemoveAll(nodeid);
+			WriteLog( "Adding node %o, but already present in list, so cleared all previously mapped messages\n", nodeid);
 			return;
 		}
 	}
+	// add the new node
 	snd = new SensorNodeData();
 	snd->nodeid = nodeid;
 	snd->strikes = 0;
 	NodeList.push_front(snd);
-	WriteLog( "Added sensor node %o, strike %d\n", snd->nodeid, snd->strikes);
+	WriteLog( "Added new sensor node %o.\n", nodeid);
 }
+
+// remove a sensor from our list
 void SensorList::RemoveSensor(int nodeid)
 {
 	SensorNodeData *snd;
+
+	WriteLog( "Removing sensor node %o...", snd->nodeid);
+
 	for( std::list<SensorNodeData *>::iterator iterator = NodeList.begin(), end = NodeList.end();
 			iterator != end; iterator++)
 	{
@@ -75,10 +91,14 @@ void SensorList::RemoveSensor(int nodeid)
 			MyMessageMap->RemoveAll(nodeid);
 			NodeList.erase(iterator);
 			delete snd;
+			WriteLog( " Success.\n");
 			return;
 		}
 	}
+	// guess it was never there?
+	WriteLog( " Not found.\n");
 }
+
 // see if a sensor is in the list. If it is, we reset the strike count
 bool SensorList::ConfirmSensor(int nodeid)
 {
@@ -89,36 +109,55 @@ bool SensorList::ConfirmSensor(int nodeid)
 		snd = *iterator;
 		if(snd->nodeid == nodeid )
 		{
-			WriteLog( "Sensor node %o, says hi (AWAKEACK), strikes at %d\n", snd->nodeid, snd->strikes);
+			WriteLog( "Sensor node %o says hi (AWAKEACK). Current strike count of %d reset to 0\n", snd->nodeid, snd->strikes);
 			snd->strikes = 0;
 			return true;
 		}
 	}
 	return false;
+
 }
+
+// mark a strike against a node
+// if it's struck out, then it gets removed from our list of nodes, and result is true
+// otherwise result is false
 bool SensorList::StrikeNode(int nodeid)
 {
 	SensorNodeData *snd;
+
+	// once we have this many, we assume the node is gone for some reason
+	int maxstrikes = 10;
+
+	WriteLog("Sensor node %o gets a strike...", nodeid);
+	
+	// first find the corresponding node in our list of nodes
 	for( std::list<SensorNodeData *>::iterator iterator = NodeList.begin(), end = NodeList.end();
 			iterator != end; iterator++)
 	{
 		snd = *iterator;
 		if(snd->nodeid == nodeid )
-		{
-			if( ++snd->strikes > 10 )
+		{ // OK, this is the correct node
+			// so increment the strike count, and see how many that makes:
+			if( ++snd->strikes >= maxstrikes )
 			{
 				// looks like this node is AWOL
-				WriteLog( "Sensor node %o unresponsive - 10 strikes. Removing\n", snd->nodeid);
+				WriteLog( " unresponsive - %d strikes. Removing\n", snd->strikes);
 				MyMessageMap->RemoveAll(snd->nodeid);
 				NodeList.erase(iterator);
-				delete snd;						
-				return true;
+				delete snd;
+				return true; // struck out
 			}
-			WriteLog("%d strikes on node %o\n", snd->strikes, nodeid);
-			return false;
+			// OK. Just a warning for now.
+			WriteLog(" Now has %d strikes/%d\n", snd->strikes, maxstrikes);
+			return false; // still has lives left
 		}
 	}
-	WriteLog("Strike on node %o failed to find registered node\n", nodeid);
+#if 1
+	WriteLog(" Node not registered anyway.\n");
+	return true; // struck out
+#else
+	// the node wasn't already in our list
+	WriteLog(" Node not registered, sending MSG_IDENTIFY...");
 	// send an IDENTIFY message to tell this node we don't know who it is
 	int retries = 4;
 	RF24NetworkHeader txheader(nodeid);
@@ -127,8 +166,16 @@ bool SensorList::StrikeNode(int nodeid)
 	{
 		delay(50);
 	}
-
+	if( retries <= 0 )
+	{
+		WriteLog(" Not delivered.");
+	}
+	else
+	{
+		WriteLog(" Delivered OK.");
+	}
 	return false;
+#endif
 }
 
 // go round all the sensors seeing if they respond...
@@ -317,6 +364,7 @@ void MyMosquitto::ProcessQueue()
 			WriteLog( "Queue send fail to node %o\n", mess->nodeid);
 			if( MySensors->StrikeNode(mess->nodeid) )
 			{
+				WriteLog("Node gone, removing queued message\n");
 				iterator = queuedMessages.erase(iterator);
 				delete mess;
 			}
@@ -341,6 +389,9 @@ int main(int argc, char** argv)
 	MySensors = new SensorList();
 	mosquittoBroker = new MyMosquitto();
 
+	// set input to non-blocking:
+	fcntl (0, F_SETFL, O_NONBLOCK);
+	
 	// Print some radio details (for debug purposes)
 	radio.printDetails();
 
@@ -416,11 +467,11 @@ int main(int argc, char** argv)
 						}
 						if( retries <= 0 )
 						{
-							strcat(strbuffer,"MSG_IDENTIFY response failed\n");
+							strcat(strbuffer,"not registered, MSG_IDENTIFY response failed\n");
 						}
 						else
 						{
-							strcat(strbuffer,"Sent MSG_IDENTIFY in reply\n");
+							strcat(strbuffer,"not registered, Sent MSG_IDENTIFY in reply\n");
 						}
 					}
 				break;
@@ -589,8 +640,17 @@ int main(int argc, char** argv)
 		timespan += interval;
 		if( timespan > 60000 )
 		{
+			WriteLog("Checking All Sensors...\n");
 			MySensors->CheckSensors();
 			timespan = 0;
+		}
+		int v;
+		read(0,&v, 1);
+		if( v == 109 )
+		{
+			// press M then Enter...
+			// So list out all the messages mapped:
+			MyMessageMap->DumpAll();			
 		}
 	}
 

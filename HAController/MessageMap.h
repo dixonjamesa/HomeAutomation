@@ -34,6 +34,8 @@ class MessageMap
 	mapitem *Match(uint16_t nodeid, unsigned char code, bool isreg);
 	// Remove all messages registered by this node
 	void RemoveAll(uint16_t nodeid);
+	// log out all mapped items
+	void DumpAll();
 };
 
 #endif
