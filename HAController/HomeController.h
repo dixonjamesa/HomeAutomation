@@ -14,14 +14,14 @@
 #include "MessageMap.h"
 
 // SensorList class
-// track what sensor nodes have woke up
+// track what sensor nodes have woken up
 class SensorList
 {
 	private:
 		struct SensorNodeData
 		{
 			int nodeid;
-			int strikes;
+			int strikes; // keeps a count of how many sequential failed communication attempts there have been
 		};
 		
 		std::list<SensorNodeData *> NodeList;

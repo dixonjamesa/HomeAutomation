@@ -94,14 +94,15 @@ void MessageMap::RemoveAll(uint16_t nodeid)
 	}
 }
 
-// output all maps to stdout
-void MessageMap::DumpAll()
+// output all maps to _out
+void MessageMap::DumpAll(char *_out, int _buflen)
 {
+	sprintf(_out, "Map: | channel | 0=subscribe, 1=register | nodeid | type | code</br>\n");
 	for( std::list<mapitem *>::const_iterator iterator = all.begin(), end = all.end();
 			iterator != end; iterator++)
 	{
 		mapitem *mi = *iterator;
-		printf("Map: %s, %d, %d, %d, %d\n", mi->channel, mi->isreg, mi->nodeid, mi->type, mi->code);
+		strcat(_out, "Map: %s, %d, %d, %d, %d</br>\n", mi->channel, mi->isreg, mi->nodeid, mi->type, mi->code);
 	}
 }
 

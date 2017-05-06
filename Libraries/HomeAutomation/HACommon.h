@@ -9,6 +9,7 @@
 #define MSG_UNKNOWN 6 // unknown MSG_DATA received (usually due to failing to send MSG_REGISTER)
 #define MSG_AWAKE 7 // sensor node started
 #define MSG_IDENTIFY 8 // you sent an AWAKEACK, but I don't recognise you. I've added you, but you really need to re-subscribe now or nothing will happen
+#define MSG_STATUS 9 // send a status message to the server (which will be logged)
 
 #define DT_BOOL 1
 #define DT_FLOAT 2

@@ -37,7 +37,7 @@ const byte switchPin = 5;
 const byte tempPin = 3;
 
 // Constants that identify this node and the node to send data to
-const uint16_t this_node = 012;
+const uint16_t this_node = 04;
 const uint16_t control_node = 0;
 
 #define DHTTYPE 22
@@ -115,6 +115,7 @@ class MyHANet: public HomeAutoNetwork
   
   void InitialiseMessaging(bool _restart=false)
   {
+    Serial.println(F("Init Messaging"));
     char channel[64];
     sprintf(channel, "n%o/status", this_node);
     RegisterChannel( DT_TEXT, 101, StatusMessage, channel, _restart); // common status reporting method
@@ -131,6 +132,7 @@ class MyHANet: public HomeAutoNetwork
     sprintf(channel, "n%o/humid", this_node);
     RegisterChannel( DT_FLOAT, 105, &humidity, 1, channel, _restart);
     allInitialised = false;
+    Serial.println(F("Init Done"));
   }
 
 } HANetwork(&RFNetwork);
@@ -197,10 +199,12 @@ void loop()
 
   if( !allInitialised )
   {
+      Serial.println(F("Waiting"));
     if( HANetwork.QueueEmpty() ) 
     {
       allInitialised = true;
       strcpy(StatusMessage, "OK.");
+      Serial.println(F("Init Complete"));
     }
     else
     {
@@ -220,21 +224,22 @@ void loop()
     humidity = dht.readHumidity();
     debugTime("A2");
   
-    if( !digitalRead(switchPin) )
+    if( !digitalRead(switchPin) || motionSensor )
     {
     #if SERIALOUT
       Serial.println(F("switchPin is low"));
     #endif
-      for(int i=0;i<200;i++)
+      float td = temperature;
+      td = td/10;
+      int d1 = td;
+      int d2 = td*10-d1*10;
+      int d3 = td*100-d1*100-d2*10;
+      int d4=0;
+      for(int i=0;i<100;i++)
       {
-        float td = temperature;
-        td = td/10;
-        int d1 = td;
-        int d2 = td*10-d1*10;
-        int d3 = td*100-d1*100-d2*10;
-        int d4=0;
         displayData(digitCodeMap[d1], digitCodeMap[d2]+128,digitCodeMap[d3],digitCodeMap[d4]);
       }
+      delay(100);
     }
     else if(motionSensor)
     {
@@ -292,6 +297,12 @@ void selectDigit(byte d)
 
 void displayData(byte d1, byte d2, byte d3, byte d4)
 {
+  Serial.print("Display ");
+  Serial.print(d1);
+  Serial.print(d2);
+  Serial.print(d3);
+  Serial.print(d4);
+  Serial.println("...");
   int dly=2;
   digitalWrite(SRLatch, LOW);
   shiftOut(SRData, SRClock, MSBFIRST, d4);

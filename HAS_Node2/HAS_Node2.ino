@@ -6,7 +6,10 @@
 
 #define DOSERIAL 1
 
+bool allInitialised = false;
+
 // Node 2 is a simple HUB node - nothing complicated, just used as a network message relay
+
 const byte RFCE = 9; // transmitter
 const byte RFCSN = 10; // transmitter
 
@@ -14,40 +17,26 @@ const byte RFCSN = 10; // transmitter
 const uint16_t this_node = 002;
 const uint16_t control_node = 0;
 
-// Radio with CE & CSN pins
-RF24 radio(RFCE, RFCSN);
-RF24Network RFNetwork(radio);
-
-bool allInitialised = false;
-
 // Time between checks (in ms)
 const unsigned long loopTime = 100;
 
 class MyHANet: public HomeAutoNetwork
 {
   public:
-  MyHANet(RF24Network *_net):HomeAutoNetwork(_net) {}
+  MyHANet(byte CE, byte CSN):HomeAutoNetwork(CE,CSN) {}
   virtual void OnMessage(uint16_t from_node, message_data *message)
   {
     switch( message->code )
     {
-      case 202: // reset
-        Serial.println(F("Reset"));
-      break;
-      case 1:
-        Serial.print(F("Data received from node "));
+      // not actually expecting to receive any other messages:
+      default:
+        Serial.print(F("Received unexpected data from node "));
         Serial.print(from_node);
-        // Check value and change the pin...
         Serial.print(F(" {Code: "));
         Serial.print(message->code);
         Serial.print(F(", Value: "));
         Serial.print(message->data[0]);
         Serial.println(F("}"));
-        digitalWrite(message->code, (bool)message->data[0]);
-      break;
-      default:
-        Serial.print(F("Received unexpected code "));
-        Serial.println(message->code);
       break;
     }
   }
@@ -55,22 +44,26 @@ class MyHANet: public HomeAutoNetwork
   // when we receive a MSG_UNKNOWN code (with data payload)
   virtual void OnUnknown(uint16_t from_node, message_data *_message) 
   {
+   #if DOSERIAL
     // let's at least report the problem...
     Serial.print(F("Message returned UNKNOWN: "));
     Serial.println(_message->code);
-    if( allInitialised)
-    {
-      // assume it's because of lost signal, so just reset ourselves...
-      InitialiseMessaging(true);
-    }
+   #endif
+    sprintf(StatusMessage , "Received unknown code %d", _message->code);
   }
 
   // Controller has told us to reset
   virtual void OnResetNeeded()
   {
+   #if DOSERIAL
     // all we need to do is re-register the channels...
     Serial.println(F("RESET"));
-    InitialiseMessaging(true);
+   #endif
+    strcpy(StatusMessage, "Resetting");
+    if(allInitialised)
+    {
+      InitialiseMessaging(true);
+    }
   }
   
   void InitialiseMessaging(bool _restart=false)
@@ -78,13 +71,16 @@ class MyHANet: public HomeAutoNetwork
     char channel[64];
     sprintf(channel, "n%o/status", this_node);
     RegisterChannel( DT_TEXT, 101, StatusMessage, channel, _restart); // common status reporting method
-    strcpy(StatusMessage, "Initialising...");
-    sprintf(channel, "n%o/reset", this_node);
-    SubscribeChannel( DT_TEXT, 202, channel); // we will be told to reset here
+   #if DOSERIAL
+    Serial.println("Initialised");
+   #endif
+    //sprintf(channel, "n%o/reset", this_node);
+    //SubscribeChannel( DT_TEXT, 202, channel); // we will be told to reset here
+    strcpy(StatusMessage, "Initialising");
     allInitialised = false;
   }
 
-} HANetwork(&RFNetwork);
+} HANetwork(RFCE, RFCSN);
 
 
 void setup(void)
@@ -94,32 +90,17 @@ void setup(void)
   Serial.begin(9600);
   Serial.println("Start");
 #endif 
-
-  // Initialize all radio related modules
+  // Initialize everything:
   SPI.begin();
-  radio.begin();
   delay(5);
-  RFNetwork.begin(120, this_node);
-  radio.setRetries(8,11);
-  radio.setPALevel(RF24_PA_MAX);
-  RFNetwork.txTimeout = 483;
-  
-  HANetwork.Begin(this_node);
-
+  HANetwork.Begin(120, this_node, 483);
   delay(50);
-
   HANetwork.InitialiseMessaging();
-#if DOSERIAL
-  Serial.println(F("Initialised"));
-#endif
 }
-
-unsigned long mils;
 
 void loop() 
 {
   // Update network data
-  RFNetwork.update();
   HANetwork.Update(loopTime);
 
   if( !allInitialised )
@@ -130,5 +111,6 @@ void loop()
       strcpy(StatusMessage, "OK.");
     }
   }
+  // Wait a bit before we start over again
   delay(loopTime);
 }

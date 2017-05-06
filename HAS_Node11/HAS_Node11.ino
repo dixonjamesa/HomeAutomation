@@ -196,8 +196,10 @@ void loop()
   }
 }
 
+// capacitive thresholds - indicate distance of hand from capacitive switch
 long ThresholdHigh = 200;
 long ThresholdLow = 120;
+
 void Latch(long value)
 {
   if(latchState == false && value > ThresholdHigh)
@@ -224,11 +226,11 @@ void Latch(long value)
   { // Hand is hovering at switch
     touchTime += loopTime;
     if( touchTime > 1000 )
-    {
+    { // been here for over a second - that's a "long press"
       lightOffDelay = lightTimeout*1000;
       if( toggleState == false )
       {
-        toggleState = !toggleState;
+        toggleState = true; // force the light on
         digitalWrite(outputPin, toggleState); // do this here for maximum responsiveness
         dummy = toggleState;
         HANetwork.ForceSendRegisteredChannel(&dummy);

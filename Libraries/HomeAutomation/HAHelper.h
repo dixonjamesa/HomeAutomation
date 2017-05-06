@@ -1,8 +1,10 @@
-#define WAKE_RETRY_TIMEOUT 5000
-#define SUBS_RETRY_TIMEOUT 600
+//#define WAKE_RETRY_TIMEOUT 5000
+//#define SUBS_RETRY_TIMEOUT 600
+#define STATUS_CHECK_TIMEOUT (30*1000)
 
 // Commmon status buffer
 char StatusMessage[48];
+
 
 struct HANWatcher
 {
@@ -18,23 +20,32 @@ struct MessageQ
 	int type;
 };
 
+// base class that should be derived from
+// Usage:
+//	 - pass the CE and CSN pins into the constructor, and this class creates the necessary RF24 and RF24Network objects
+//	 - these are then used for all RF24 communication
+//	 - first call Begin(channel, nodeID, timeout) to initialise all network communication and send AWAKE message
+//	 - call Update(time) regularly to poll comms
+
 class HomeAutoNetwork
 {
 	private:
+		RF24 *Radio = NULL;
 		RF24Network *TheNetwork = NULL;
 		bool Started = false;
 		HANWatcher ** WatchingItems;
 		int WatchedItems = 0;
-		unsigned long updateTimer = 0;
-		uint16_t NodeID; 
-		bool awakeOK = false;
+		unsigned long updateTimer = 0; // timer used for regular sending of AWAKEACK messages
+		uint16_t NodeID; // my node ID. Passed through the Begin() method
+		bool awakeOK = false; // true once we successfully transmit MSG_AWAKE
 		int queueSize = 0;
 		#define MAXQUEUESIZE 8
 		MessageQ messageQueue[MAXQUEUESIZE];
 	public:
-		HomeAutoNetwork(RF24Network *net):
-		TheNetwork(net)
+		HomeAutoNetwork(byte CE, byte CSN)
 		{
+			Radio = new RF24(CE, CSN);
+			TheNetwork = new RF24Network(*Radio);
 		}
 		
 		bool QueueEmpty()
@@ -42,17 +53,27 @@ class HomeAutoNetwork
 			return queueSize == 0;
 		}
 		
-		void Begin(const uint16_t node_id)
+		// Must be called first to kick things off
+		void Begin(uint8_t channel, const uint16_t node_id, int _timeout=483)
 		{
-			NodeID = node_id;
-			TestAwake(0);
+			Radio->begin();
+			TheNetwork->begin(channel, node_id);
+			Radio->setRetries(8,11);
+			Radio->setPALevel(RF24_PA_MAX);
+			TheNetwork->txTimeout = _timeout;
+			NodeID = node_id; // store the node id
+			TestAwake(0); // send an AWAKE
 		}
 		
-		// Perform an update step - check for messages, and changes on registered data variables...
+		// This is the main method that should be called regularly
+		// It performs an update step - check for messages and changes on registered data variables...
 		void Update(unsigned long _time)
 		{
-			TestAwake( _time );
-			if( awakeOK && ProcessQueue() )
+			// First we have to update the RF24 network
+			TheNetwork->update();
+			// must call TestAwake regularly and check it's OK
+			// then only check the rest if there's nothing left in the queue (to avoid things stacking up)
+			if( TestAwake( _time ) && ProcessQueue() )
 			{
 				// first check for incoming messages...
 				CheckForMessages();
@@ -65,9 +86,16 @@ class HomeAutoNetwork
 			}
 		}
 		
+		// override this to receive MSG_DATA messages:
 		virtual void OnMessage(uint16_t from_node, message_data *_message) {}
+		
+		// override this to respond to MSG_UNKNOWN:
 		virtual void OnUnknown(uint16_t from_node, message_data *_message) {}
+		
+		// override this to get a callback when AWAKE succeeds, and then the status of subsequent AWAKEACK messages
 		virtual void OnAwake(bool _success) {}
+		
+		// override this to respond to MSG_IDENTIFY:
 		virtual void OnResetNeeded() {}
 
 		// Register that we want to transmit data on a channel
@@ -97,12 +125,16 @@ class HomeAutoNetwork
 		  registerCommon(t, code, value, 0, strlen(value), c, _restart);
 		}
 
-		void SubscribeChannel(byte t, byte i, const char *c)
+		// subscribe to a channel - means tell me about changes on this channel
+		// expecting the data to come through as type _type, as defined in HACommon.h
+		// won't transmit anything ourselves
+		void SubscribeChannel(byte _type, byte _id, const char *_channel)
 		{
 		  RF24NetworkHeader header(0);
 		  Serial.print(F("Subscribing to channel:"));
+		  Serial.print(_channel);
 		  header.type = MSG_SUBSCRIBE;
-		  regsub(&header, t, i, c);
+		  regsub(&header, _type, _id, _channel);
 		}
 		
 		// force a particular data send, even if it's not changed
@@ -245,40 +277,40 @@ class HomeAutoNetwork
 		void CheckForMessages()
 		{
 		  while (TheNetwork->available()) 
-		  {
+		  { // Yes, there's a message available:
 			RF24NetworkHeader header;
 			message_data message;
-			TheNetwork->peek(header);
-			if(header.type == MSG_UNKNOWN)
+			TheNetwork->peek(header); // get the message type
+			switch( header.type )
 			{
-			  int sizeread = TheNetwork->read(header, &message, sizeof(message));
-			  OnUnknown(header.from_node, &message);
-			}
-			else if( header.type == MSG_IDENTIFY)
-			{
-				TheNetwork->read(header, &message, sizeof(message));
-				// result of a failed AWAKEACK - we need to tell the sensor to re-register its stuff
-				sendAwake(MSG_AWAKE, NodeID);
-				OnResetNeeded();
-			}
-			else if (header.type == MSG_DATA) 
-			{
-			  TheNetwork->read(header, &message, sizeof(message));
-			  OnMessage(header.from_node, &message);
-			} 
-			else if (header.type == MSG_PING)
-			{
-				// just ignore
-				TheNetwork->read(header, &message, sizeof(message));
-			}
-			else 
-			{
-			  // This is not a type we recognize
-			  TheNetwork->read(header, &message, sizeof(message));
-			  Serial.print(F("Unknown message "));
-			  Serial.print(header.type);
-			  Serial.print(F(" received from node "));
-			  Serial.println(header.from_node);
+				case MSG_UNKNOWN:
+				{
+				  int sizeread = TheNetwork->read(header, &message, sizeof(message));
+				  OnUnknown(header.from_node, &message);
+				  break;
+				}
+				case MSG_IDENTIFY:
+					TheNetwork->read(header, &message, sizeof(message));
+					// result of a failed AWAKEACK - we need to tell the sensor to re-register its stuff
+					sendAwake(MSG_AWAKE);
+					OnResetNeeded();
+					break;
+				case MSG_DATA:
+					TheNetwork->read(header, &message, sizeof(message));
+					OnMessage(header.from_node, &message);
+					break;
+				case MSG_PING:
+					// just ignore
+					TheNetwork->read(header, &message, sizeof(message));
+					break;
+				default: 
+				  // This is not a type we recognize
+				  TheNetwork->read(header, &message, sizeof(message));
+				  Serial.print(F("Unknown message "));
+				  Serial.print(header.type);
+				  Serial.print(F(" received from node "));
+				  Serial.println(header.from_node);
+				  break;
 			}
 		  }
 		}
@@ -302,6 +334,14 @@ class HomeAutoNetwork
 			}
 			return 0;
 		}
+
+		// Send a status message
+		int SendMessage(char *_message)
+		{
+			RF24NetworkHeader writeHeader(0);
+			writeHeader.type = MSG_STATUS;
+			return TheNetwork->write(writeHeader, _message, strlen(_message)+1);
+		}
 		
 		// Send a data message
 		int SendMessage(message_data *_message, int _datasize)
@@ -312,23 +352,33 @@ class HomeAutoNetwork
 		}
 		
 	private:
-		// make sure we are registered awake...
-		void TestAwake(unsigned int _time)
+		// make sure we are registered awake and everything is working as expected
+		// this method is called regularly by the Update method
+		bool TestAwake(unsigned int _time)
 		{
 			if( !awakeOK )
 			{
-				awakeOK = sendAwake(MSG_AWAKE, NodeID);
-				if( awakeOK ) Serial.println(F("HANetwork awake")); else Serial.println(F("Failed to wake...")); 
-				return;
+				awakeOK = sendAwake(MSG_AWAKE);
+				if( awakeOK ) 
+				{
+					Serial.println(F("HANetwork awake")); 
+					// let derived class know that we are now officially working:
+					OnAwake(true);
+				} else 
+				{
+					Serial.println(F("Failed to wake...")); 
+				}
+				return awakeOK;
 			}
 			// timer 
 			updateTimer += _time;
-			if( updateTimer > 30*1000 ) // 30 secs
+			if( updateTimer > STATUS_CHECK_TIMEOUT ) // timeout has passed, so let's check everything is still working:
 			{
 				Serial.print(F("Update timer now "));
 				Serial.print(updateTimer);
 				Serial.print(F("..."));
-				if( sendAwake(MSG_AWAKEACK, NodeID) )
+				// send an AWAKEACK message:
+				if( sendAwake(MSG_AWAKEACK) )
 				{
 					// reset for another 30 (otherwise keep trying on next loop)
 					updateTimer = 0;
@@ -337,12 +387,20 @@ class HomeAutoNetwork
 				}
 				else
 				{
+					// failed to send, so don't reset updateTimer, and we'll get here again next time 
+					// around the loop so we keep trying. Basically if this isn't delivering, we can't
+					// communicate with the HUB. Not much we can do in this situation other than keep trying
 					Serial.println(F("Up check FAIL."));
+					// send this to give the derived class a chance to do something to acknowledge this 
+					// non-communicative state (like flash a red light or something)
 					OnAwake(false);
 				}
 			}
+			return true;
 		}
 		
+		// Common register function
+		// Sets up a variable watcher so that whenever it changes, a message is transmitted over the RF24 network
 		void registerCommon(byte t, byte code, void *value, float delta, int size, const char *c, bool _restart)
 		{
 			if( strlen(c) >= MAXDATALENGTH )
@@ -392,28 +450,38 @@ class HomeAutoNetwork
 		  memcpy(w->msg.data, value, size);
 		  WatchingItems[WatchedItems-1] = w;
 		}
-		void regsub(RF24NetworkHeader *header, byte t, byte code, const char *c)
+		
+		// common register/subscribe method
+		void regsub(RF24NetworkHeader *header, byte _type, byte _code, const char *_channel)
 		{
+		  // set up a subscribe message:
 		  message_subscribe mess;
-		  mess.type = t;
-		  mess.code = code;
-		  strcpy(mess.channel, c);
+		  mess.type = _type;
+		  mess.code = _code;
+		  strcpy(mess.channel, _channel);
+		  // serial debug:
 		  Serial.print((char *)mess.channel); 
 		  Serial.print(F(" using code "));
-		  Serial.print(code);
+		  Serial.print(_code);
 		  Serial.print(F("..."));
-		  if(!TheNetwork->write(*header, &mess, 2+1+strlen(c))) 
+		  // send the message:
+		  if(!TheNetwork->write(*header, &mess, 2+1+strlen(_channel))) 
 		  {
 			Serial.print(F("FAIL. ")); 
-			// add it to the queue...
+			// failed, so add it to the queue...
 			if( queueSize < MAXQUEUESIZE )
 			{
 				Serial.print(F("Queuing... ")); 
 				messageQueue[queueSize].msg = mess;
-				messageQueue[queueSize].size = 2+1+strlen(c);
+				messageQueue[queueSize].size = 2+1+strlen(_channel);
 				messageQueue[queueSize].type = header->type;
 				queueSize++;
 				Serial.println(F("Queued."));
+			}
+			else
+			{
+				Serial.println(F("NOT QUEUED - BAAAAD!!!"));
+				sprintf(StatusMessage , "> Queue: %c chan %s", _code, _channel);
 			}
 		  }
 		  else
@@ -423,6 +491,7 @@ class HomeAutoNetwork
 		}
 		
 		// try to send all queued messages
+		// returns true if the queue is empty at the end
 		bool ProcessQueue()
 		{
 			RF24NetworkHeader header(0);
@@ -464,10 +533,11 @@ class HomeAutoNetwork
 				Serial.println(F("FAIL"));
 			}
 		}
-		bool sendAwake(byte _code, const uint16_t node_id)
+		// Send an awake or awakeack message 
+		bool sendAwake(byte _code)
 		{
 			char channel_root[32];
-			sprintf(channel_root,"n%o",node_id);
+			sprintf(channel_root,"n%o",NodeID);
 			message_data mess;
 			mess.code = 0;
 			mess.type = DT_TEXT;

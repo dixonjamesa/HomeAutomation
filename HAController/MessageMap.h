@@ -14,10 +14,10 @@
 
 struct mapitem
 {
-	char *channel;
-	bool isreg;
-	uint16_t nodeid;
-	unsigned char type; // DT_xxx
+	char *channel; // name of channel
+	bool isreg; // register or a subscribe
+	uint16_t nodeid; // node id
+	unsigned char type; // DT_xxx from HACommon.h
 	unsigned char code; // id to send with message
 };
 
@@ -35,7 +35,7 @@ class MessageMap
 	// Remove all messages registered by this node
 	void RemoveAll(uint16_t nodeid);
 	// log out all mapped items
-	void DumpAll();
+	void DumpAll(char *_out, int _buflen);
 };
 
 #endif
