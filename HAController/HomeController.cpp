@@ -3,20 +3,43 @@
 #include <mosquittopp.h>
 #include <iostream>
 #include <ctime>
-#include <stdio.h>
+#include <cstdio>
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdlib.h>
 #include <stdarg.h>
 #include <time.h>
 #include <list>
+#include <thread>
 #include "../Libraries/HomeAutomation/HACommon.h"
 #include "MessageMap.h"
 #include "HomeController.h"
 
+using namespace std;
+
+/// HomeController
+//
+// This acts as a bridge between the RF24 network and the mosquitto network
+// A map is maintained between mosquitto topics (called channels) and RF24 node/id pairs
+// an RF24 node can either subscribe to a channel to receive updates from mqtt, or register a channel, to provide updates itself to mqtt
+
+
+
 FILE *logfile;
-char strbuffer[1024];
-char tbuffer[512];
+char strbuffer[1024]; // used to build up a log message
+char tbuffer[512]; // temporary buffer
+void jlisten();
+
+// get a socket in_address
+void * get_in_addr(struct sockaddr * addr)
+{
+    if(addr->sa_family == AF_INET)
+    {
+	return &(((struct sockaddr_in *)addr)->sin_addr);
+    }
+    return &(((sockaddr_in6 *)addr)->sin6_addr);
+}
+
 // write to logfile, if enabled...
 void WriteLog(const char *str, ...)
 {
@@ -99,7 +122,7 @@ void SensorList::RemoveSensor(int nodeid)
 	WriteLog( " Not found.\n");
 }
 
-// see if a sensor is in the list. If it is, we reset the strike count
+// see if a sensor is in the list. If it is, we reset the strike count. Otherwise we just return false
 bool SensorList::ConfirmSensor(int nodeid)
 {
 	SensorNodeData *snd;
@@ -220,24 +243,27 @@ void SensorList::CheckSensors()
 
 void MyMosquitto::on_connect (int rc) { WriteLog( "Connected to Mosquitto\n"); }
 
-void MyMosquitto::on_disconnect () { WriteLog( "Disconnected\n"); }
+void MyMosquitto::on_disconnect () { WriteLog( "Disconnected from Mosquitto\n"); }
 
 
 void MyMosquitto::on_message(const struct mosquitto_message* mosqmessage) 
 {
 	// Message received on a channel we subscribe to
 	sprintf(strbuffer, "Message on %s: %s, ", mosqmessage->topic, (char *)mosqmessage->payload);
-	
+
+	// first find all the subscriptions to this message:
 	std::list<mapitem *> matchlist;
 	int matches = MyMessageMap->MatchAll(mosqmessage->topic, &matchlist, false);
 
 	if( matches == 0 )
 	{
+		// no matches means something went wrong, because we should have got the mqtt message if nobody's subscribed!
 		sprintf(tbuffer, "could not identify channel from: %s\n", mosqmessage->topic);
 		strcat(strbuffer, tbuffer);
 		WriteLog(strbuffer);
 		return;
 	}
+	// debug log:
 	sprintf(tbuffer, "matches %d items; ", matches);
 	strcat(strbuffer, tbuffer);
 	
@@ -411,6 +437,11 @@ int main(int argc, char** argv)
 		//----- FILE NOT FOUND -----
 		printf("failed to start logging\n");
 	}
+	WriteLog("Initializing web server...\n");
+	
+	// kick off the jlisten function on a separate thread...
+	thread serverThread(jlisten);
+	
 	WriteLog( "Listening...\n");
 	while (true)
 	{
@@ -515,6 +546,14 @@ int main(int argc, char** argv)
 						sprintf(tbuffer, "Node %o subscribed to channel %s using code %d\n", header.from_node, channel, message.code);				
 						strcat(strbuffer, tbuffer);
 					}
+				}
+				break;
+				case MSG_STATUS:
+				{ // just log the message:
+					char *message;
+					int datasize = network.read(header, &message, sizeof(message));
+					sprintf(tbuffer, "Node %o sent status message: %s", header.from_node, message);
+					strcat(strbuffer, tbuffer);
 				}
 				break;
 				case MSG_DATA:
@@ -626,9 +665,9 @@ int main(int argc, char** argv)
 					strcat(strbuffer, tbuffer);
 				}
 				break;
-			}
+			} // switch (header.type)
 			if( *strbuffer != 0 ) WriteLog(strbuffer);
-		}
+		} // while (network.available())
 
 		// Check for messages on our subscribed channels
 		mosquittoBroker->loop();
@@ -648,14 +687,92 @@ int main(int argc, char** argv)
 		read(0,&v, 1);
 		if( v == 109 )
 		{
+			char tempbuf[1024];
 			// press M then Enter...
 			// So list out all the messages mapped:
-			MyMessageMap->DumpAll();			
+			MyMessageMap->DumpAll(tempbuf, 1024);			
+			printf(tempbuf);
 		}
-	}
-
+	} // while (true)
+	
 	fclose(logfile);
+	serverThread.join();
 
 	// last thing we do before we end things
 	return 0;
+}
+
+/// Listen for network traffic, and serve up some data as required
+/// We are listening on port 5001
+void jlisten()
+{
+    int listenfd = 0, connfd = 0;
+    struct sockaddr_in serv_addr; 
+    struct sockaddr_storage client_addr;
+
+    char sendBuff[1024];
+    char content[2048];
+    char timebuf[256];
+    time_t ticks;
+    struct tm tm;
+
+	// create a socket:
+    listenfd = socket(AF_INET, SOCK_STREAM, 0);
+    memset(&serv_addr, '0', sizeof(serv_addr));
+    memset(sendBuff, '0', sizeof(sendBuff)); 
+
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    serv_addr.sin_port = htons(5001); 
+
+	// bind to the socket
+    bind(listenfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)); 
+    listen(listenfd, 10); 
+
+    char s[INET6_ADDRSTRLEN];
+    socklen_t addr_size = sizeof(client_addr);
+
+    while(1)
+    {
+		// blocking call to wait for a connection on the socket:
+		connfd = accept(listenfd, (struct sockaddr*)&client_addr, &addr_size); 
+
+		// find out who connected:
+		inet_ntop(client_addr.ss_family, get_in_addr((struct sockaddr*)&client_addr), s, sizeof(s));
+		WriteLog( "Request for info made from %s ...", s);
+
+        ticks = time(0);
+		tm = *gmtime(&ticks);
+
+		sprintf(content, "<!DOCTYPE html\">");
+		strcat(content, "<html><head><title>Test Page</title></head><body>");
+		char tempbuf[1024];
+		MyMessageMap->DumpAll(tempbuf, 1024);
+		strcat(content, tempbuf);
+		strcat(content, "</body></html>");
+
+        snprintf(sendBuff, sizeof(sendBuff), "HTTP/1.1 200 OK\r\n");
+        write(connfd, sendBuff, strlen(sendBuff)); 
+        snprintf(sendBuff, sizeof(sendBuff), "Server: pibrain\r\n");
+        write(connfd, sendBuff, strlen(sendBuff));
+        snprintf(sendBuff, sizeof(sendBuff), "Host: pibrain\r\n");
+        write(connfd, sendBuff, strlen(sendBuff));
+        strftime(sendBuff, sizeof(sendBuff), "Date: %a, %d %b %Y %H:%M:%S %Z\r\n", &tm);
+        write(connfd, sendBuff, strlen(sendBuff));
+        snprintf(sendBuff, sizeof(sendBuff), "Connection: Closed\r\n");
+        write(connfd, sendBuff, strlen(sendBuff));
+        snprintf(sendBuff, sizeof(sendBuff), "Content-Length: %d\r\n", strlen(content));
+        write(connfd, sendBuff, strlen(sendBuff));
+        snprintf(sendBuff, sizeof(sendBuff), "Content-Type: text/html; charset=UTF-8\r\n\r\n");
+        write(connfd, sendBuff, strlen(sendBuff));
+
+        write(connfd, content, strlen(content));
+
+
+		//cerr << "Content sent...";
+		shutdown(connfd, SHUT_WR);
+        close(connfd);
+		//cerr << "Closed\r\n";
+        sleep(1);
+     }
 }
