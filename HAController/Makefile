@@ -14,7 +14,8 @@ installdir := /usr/local
 
 CC=g++
 # The recommended compiler flags for the Raspberry Pi
-CFLAGS=-Ofast -mfpu=vfp -mfloat-abi=hard -march=armv6zk -mtune=arm1176jzf-s
+CFLAGS= -Wall -pthread -std=c++11 
+#-Ofast -mfpu=vfp -mfloat-abi=hard -march=armv6zk -mtune=arm1176jzf-s
 
 # define all programs
 OBJECTS = HomeController.o MessageMap.o
@@ -22,11 +23,11 @@ DEPS = MessageMap.h HomeController.h
 
 all: HomeController
 
-%.o:%.c $(DEPS)
-	$(CC) -Wall -I../ -I../Libraries/HomeAutomation -lrf24-bcm -lrf24network -lmosquittopp -c -o $@ $< $(CFLAGS)  
+%.o:%.cpp $(DEPS)
+	$(CC) $(CFLAGS) -I../ -I../Libraries/HomeAutomation -lrf24-bcm -lrf24network -lmosquittopp -c -o $@ $<
 
 HomeController: $(OBJECTS) $(DEPS)
-	$(CC) -Wall -I../ -I../Libraries/HomeAutomation -lrf24-bcm -lrf24network -lmosquittopp -o $@ $^ $(CFLAGS) 
+	$(CC) $(CFLAGS) -I../ -I../Libraries/HomeAutomation -lrf24-bcm -lrf24network -lmosquittopp -o $@ $^ 
 
 clean:
 	rm -rf $(PROGRAMS) *.o

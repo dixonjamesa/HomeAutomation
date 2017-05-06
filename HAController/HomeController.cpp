@@ -11,6 +11,9 @@
 #include <time.h>
 #include <list>
 #include <thread>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include "../Libraries/HomeAutomation/HACommon.h"
 #include "MessageMap.h"
 #include "HomeController.h"
@@ -103,7 +106,7 @@ void SensorList::RemoveSensor(int nodeid)
 {
 	SensorNodeData *snd;
 
-	WriteLog( "Removing sensor node %o...", snd->nodeid);
+	WriteLog( "Removing sensor node %o...", nodeid);
 
 	for( std::list<SensorNodeData *>::iterator iterator = NodeList.begin(), end = NodeList.end();
 			iterator != end; iterator++)
@@ -337,7 +340,7 @@ void MyMosquitto::on_message(const struct mosquitto_message* mosqmessage)
 			{
 				datamessage = (message_data){ item->code, DT_INT32, 0};
 				strcpy( datamessage.data, (char*)mosqmessage->payload);
-				datamessage.data[63] = 0; // ensure it's 0 terminated
+				datamessage.data[MAXDATALENGTH-1] = 0; // ensure it's 0 terminated
 				datasize += strlen(datamessage.data)+1;
 			}
 			break;
@@ -551,7 +554,7 @@ int main(int argc, char** argv)
 				case MSG_STATUS:
 				{ // just log the message:
 					char *message;
-					int datasize = network.read(header, &message, sizeof(message));
+					/*int datasize =*/ network.read(header, &message, sizeof(message));
 					sprintf(tbuffer, "Node %o sent status message: %s", header.from_node, message);
 					strcat(strbuffer, tbuffer);
 				}
@@ -687,6 +690,7 @@ int main(int argc, char** argv)
 		read(0,&v, 1);
 		if( v == 109 )
 		{
+			printf("MEssage Dump:\n");
 			char tempbuf[1024];
 			// press M then Enter...
 			// So list out all the messages mapped:
@@ -706,34 +710,34 @@ int main(int argc, char** argv)
 /// We are listening on port 5001
 void jlisten()
 {
-    int listenfd = 0, connfd = 0;
-    struct sockaddr_in serv_addr; 
-    struct sockaddr_storage client_addr;
+	int listenfd = 0, connfd = 0;
+    	struct sockaddr_in serv_addr; 
+    	struct sockaddr_storage client_addr;
 
-    char sendBuff[1024];
-    char content[2048];
-    char timebuf[256];
-    time_t ticks;
-    struct tm tm;
+	char sendBuff[256];
+	char content[2500];
+	time_t ticks;
+	struct tm tm;
 
 	// create a socket:
-    listenfd = socket(AF_INET, SOCK_STREAM, 0);
-    memset(&serv_addr, '0', sizeof(serv_addr));
-    memset(sendBuff, '0', sizeof(sendBuff)); 
+	listenfd = socket(AF_INET, SOCK_STREAM, 0);
+	memset(&serv_addr, '0', sizeof(serv_addr));
+	memset(sendBuff, '0', sizeof(sendBuff)); 
 
-    serv_addr.sin_family = AF_INET;
-    serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    serv_addr.sin_port = htons(5001); 
+	serv_addr.sin_family = AF_INET;
+	serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+	serv_addr.sin_port = htons(5001); 
 
 	// bind to the socket
-    bind(listenfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)); 
-    listen(listenfd, 10); 
+	bind(listenfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)); 
+	listen(listenfd, 10); 
 
-    char s[INET6_ADDRSTRLEN];
-    socklen_t addr_size = sizeof(client_addr);
+	char s[INET6_ADDRSTRLEN];
+	socklen_t addr_size = sizeof(client_addr);
 
-    while(1)
-    {
+	WriteLog( "Server listening\n");
+	while(1)
+	{
 		// blocking call to wait for a connection on the socket:
 		connfd = accept(listenfd, (struct sockaddr*)&client_addr, &addr_size); 
 
@@ -741,38 +745,37 @@ void jlisten()
 		inet_ntop(client_addr.ss_family, get_in_addr((struct sockaddr*)&client_addr), s, sizeof(s));
 		WriteLog( "Request for info made from %s ...", s);
 
-        ticks = time(0);
+	        ticks = time(0);
 		tm = *gmtime(&ticks);
 
 		sprintf(content, "<!DOCTYPE html\">");
 		strcat(content, "<html><head><title>Test Page</title></head><body>");
-		char tempbuf[1024];
-		MyMessageMap->DumpAll(tempbuf, 1024);
+		char tempbuf[2048];
+		MyMessageMap->DumpAll(tempbuf, 2048);
 		strcat(content, tempbuf);
 		strcat(content, "</body></html>");
 
-        snprintf(sendBuff, sizeof(sendBuff), "HTTP/1.1 200 OK\r\n");
-        write(connfd, sendBuff, strlen(sendBuff)); 
-        snprintf(sendBuff, sizeof(sendBuff), "Server: pibrain\r\n");
-        write(connfd, sendBuff, strlen(sendBuff));
-        snprintf(sendBuff, sizeof(sendBuff), "Host: pibrain\r\n");
-        write(connfd, sendBuff, strlen(sendBuff));
-        strftime(sendBuff, sizeof(sendBuff), "Date: %a, %d %b %Y %H:%M:%S %Z\r\n", &tm);
-        write(connfd, sendBuff, strlen(sendBuff));
-        snprintf(sendBuff, sizeof(sendBuff), "Connection: Closed\r\n");
-        write(connfd, sendBuff, strlen(sendBuff));
-        snprintf(sendBuff, sizeof(sendBuff), "Content-Length: %d\r\n", strlen(content));
-        write(connfd, sendBuff, strlen(sendBuff));
-        snprintf(sendBuff, sizeof(sendBuff), "Content-Type: text/html; charset=UTF-8\r\n\r\n");
-        write(connfd, sendBuff, strlen(sendBuff));
+		snprintf(sendBuff, sizeof(sendBuff), "HTTP/1.1 200 OK\r\n");
+	        write(connfd, sendBuff, strlen(sendBuff)); 
+	        snprintf(sendBuff, sizeof(sendBuff), "Server: pibrain\r\n");
+	        write(connfd, sendBuff, strlen(sendBuff));
+	        snprintf(sendBuff, sizeof(sendBuff), "Host: pibrain\r\n");
+	        write(connfd, sendBuff, strlen(sendBuff));
+	        strftime(sendBuff, sizeof(sendBuff), "Date: %a, %d %b %Y %H:%M:%S %Z\r\n", &tm);
+	        write(connfd, sendBuff, strlen(sendBuff));
+	        snprintf(sendBuff, sizeof(sendBuff), "Connection: Closed\r\n");
+	        write(connfd, sendBuff, strlen(sendBuff));
+	        snprintf(sendBuff, sizeof(sendBuff), "Content-Length: %d\r\n", strlen(content));
+	        write(connfd, sendBuff, strlen(sendBuff));
+	        snprintf(sendBuff, sizeof(sendBuff), "Content-Type: text/html; charset=UTF-8\r\n\r\n");
+	        write(connfd, sendBuff, strlen(sendBuff));
 
-        write(connfd, content, strlen(content));
-
+	        write(connfd, content, strlen(content));
 
 		//cerr << "Content sent...";
 		shutdown(connfd, SHUT_WR);
-        close(connfd);
+       	 	close(connfd);
 		//cerr << "Closed\r\n";
-        sleep(1);
-     }
+		sleep(1);
+	}
 }

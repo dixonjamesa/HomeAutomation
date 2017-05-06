@@ -97,12 +97,21 @@ void MessageMap::RemoveAll(uint16_t nodeid)
 // output all maps to _out
 void MessageMap::DumpAll(char *_out, int _buflen)
 {
-	sprintf(_out, "Map: | channel | 0=subscribe, 1=register | nodeid | type | code</br>\n");
+	char tbuf[128];
+	int written;
+	written = snprintf(_out, _buflen, "<table border=\"1\"><tr><th>Channel</th><th>0=sub, 1=reg</th><th>nodeid</th><th>type</th><th>code</th></tr>");
 	for( std::list<mapitem *>::const_iterator iterator = all.begin(), end = all.end();
 			iterator != end; iterator++)
 	{
+		int len;
 		mapitem *mi = *iterator;
-		strcat(_out, "Map: %s, %d, %d, %d, %d</br>\n", mi->channel, mi->isreg, mi->nodeid, mi->type, mi->code);
+		len = sprintf(tbuf, "<tr><td>%s</td><td>%d</td><td>%d</td><td>%d</td><td>%d</td></tr>", mi->channel, mi->isreg, mi->nodeid, mi->type, mi->code);
+		if(written+len+9 < _buflen)
+		{
+			written += len;
+			strcat(_out, tbuf);
+		}
 	}
+	strcat(_out, "</table>");
 }
 
