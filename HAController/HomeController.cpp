@@ -1,15 +1,16 @@
 #include <RF24/RF24.h>
 #include <RF24Network/RF24Network.h>
 #include <mosquittopp.h>
+#include <stdlib.h>
 #include <iostream>
 #include <ctime>
 #include <cstdio>
 #include <unistd.h>
 #include <fcntl.h>
-#include <stdlib.h>
 #include <stdarg.h>
 #include <time.h>
 #include <list>
+#include <map>
 #include <thread>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -17,6 +18,7 @@
 #include "../Libraries/HomeAutomation/HACommon.h"
 #include "MessageMap.h"
 #include "HomeController.h"
+#include <boost/algorithm/string.hpp>
 
 using namespace std;
 
@@ -80,7 +82,9 @@ void SensorList::AddSensor(int nodeid)
 {
 	SensorNodeData *snd;
 		
-	for( std::list<SensorNodeData *>::const_iterator iterator = NodeList.begin(), end = NodeList.end();
+	// first look through all the current sensors to see if this nodeid is already present. If so, no need to re-add it,
+	// but we will remove all its mapped messsages
+	for( list<SensorNodeData *>::const_iterator iterator = NodeList.begin(), end = NodeList.end();
 			iterator != end; iterator++)
 	{
 		snd = *iterator;
@@ -108,7 +112,7 @@ void SensorList::RemoveSensor(int nodeid)
 
 	WriteLog( "Removing sensor node %o...", nodeid);
 
-	for( std::list<SensorNodeData *>::iterator iterator = NodeList.begin(), end = NodeList.end();
+	for( list<SensorNodeData *>::iterator iterator = NodeList.begin(), end = NodeList.end();
 			iterator != end; iterator++)
 	{
 		snd = *iterator;
@@ -129,13 +133,16 @@ void SensorList::RemoveSensor(int nodeid)
 bool SensorList::ConfirmSensor(int nodeid)
 {
 	SensorNodeData *snd;
-	for( std::list<SensorNodeData *>::const_iterator iterator = NodeList.begin(), end = NodeList.end();
+	for( list<SensorNodeData *>::const_iterator iterator = NodeList.begin(), end = NodeList.end();
 			iterator != end; iterator++)
 	{
 		snd = *iterator;
 		if(snd->nodeid == nodeid )
 		{
-			WriteLog( "Sensor node %o says hi (AWAKEACK). Current strike count of %d reset to 0\n", snd->nodeid, snd->strikes);
+			if( snd->strikes > 0 )
+			{ // only log if it's been MIA for a round
+				WriteLog( "Sensor node %o says hi (AWAKEACK). Current strike count of %d reset to 0\n", snd->nodeid, snd->strikes);
+			}
 			snd->strikes = 0;
 			return true;
 		}
@@ -157,7 +164,7 @@ bool SensorList::StrikeNode(int nodeid)
 	WriteLog("Sensor node %o gets a strike...", nodeid);
 	
 	// first find the corresponding node in our list of nodes
-	for( std::list<SensorNodeData *>::iterator iterator = NodeList.begin(), end = NodeList.end();
+	for( list<SensorNodeData *>::iterator iterator = NodeList.begin(), end = NodeList.end();
 			iterator != end; iterator++)
 	{
 		snd = *iterator;
@@ -209,7 +216,7 @@ void SensorList::CheckSensors()
 {
 	//WriteLog("Sensor Check...\n");
 	SensorNodeData *snd;
-	for( std::list<SensorNodeData *>::iterator iterator = NodeList.begin(), end = NodeList.end();
+	for( list<SensorNodeData *>::iterator iterator = NodeList.begin(), end = NodeList.end();
 			iterator != end; /* deliberately nothing */)
 	{
 		snd = *iterator;
@@ -255,7 +262,7 @@ void MyMosquitto::on_message(const struct mosquitto_message* mosqmessage)
 	sprintf(strbuffer, "Message on %s: %s, ", mosqmessage->topic, (char *)mosqmessage->payload);
 
 	// first find all the subscriptions to this message:
-	std::list<mapitem *> matchlist;
+	list<mapitem *> matchlist;
 	int matches = MyMessageMap->MatchAll(mosqmessage->topic, &matchlist, false);
 
 	if( matches == 0 )
@@ -270,7 +277,7 @@ void MyMosquitto::on_message(const struct mosquitto_message* mosqmessage)
 	sprintf(tbuffer, "matches %d items; ", matches);
 	strcat(strbuffer, tbuffer);
 	
-	for(std::list<mapitem *>::const_iterator iterator = matchlist.begin(), end = matchlist.end();
+	for(list<mapitem *>::const_iterator iterator = matchlist.begin(), end = matchlist.end();
 		iterator != end; iterator++)
 	{
 		mapitem *item = *iterator;
@@ -374,7 +381,7 @@ void MyMosquitto::on_message(const struct mosquitto_message* mosqmessage)
 }
 void MyMosquitto::ProcessQueue()
 {
-	for( std::list<qMessage *>::iterator iterator = queuedMessages.begin(), end = queuedMessages.end();
+	for( list<qMessage *>::iterator iterator = queuedMessages.begin(), end = queuedMessages.end();
 			iterator != end; /*deliberately nothing*/ )
 	{
 		qMessage *mess = *iterator;
@@ -715,12 +722,19 @@ void jlisten()
     	struct sockaddr_storage client_addr;
 
 	char sendBuff[256];
+	char requestBuff[4096];
 	char content[2500];
 	time_t ticks;
 	struct tm tm;
+	int errcount = 0;
 
 	// create a socket:
 	listenfd = socket(AF_INET, SOCK_STREAM, 0);
+	if( listenfd == -1 )
+	{
+		WriteLog( "Server socket could not be created, error %d\n", errno);
+		return;
+	}
 	memset(&serv_addr, '0', sizeof(serv_addr));
 	memset(sendBuff, '0', sizeof(sendBuff)); 
 
@@ -729,8 +743,16 @@ void jlisten()
 	serv_addr.sin_port = htons(5001); 
 
 	// bind to the socket
-	bind(listenfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)); 
-	listen(listenfd, 10); 
+	if( bind(listenfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) == -1 )
+	{
+		WriteLog( "Server failed to bind to socket with error %d\n", errno);
+		return;
+	}
+	if( listen(listenfd, 5) == -1 )
+	{
+		WriteLog( "Server listen failed with error %d\n", errno);
+		return;
+	}
 
 	char s[INET6_ADDRSTRLEN];
 	socklen_t addr_size = sizeof(client_addr);
@@ -741,41 +763,85 @@ void jlisten()
 		// blocking call to wait for a connection on the socket:
 		connfd = accept(listenfd, (struct sockaddr*)&client_addr, &addr_size); 
 
-		// find out who connected:
-		inet_ntop(client_addr.ss_family, get_in_addr((struct sockaddr*)&client_addr), s, sizeof(s));
-		WriteLog( "Request for info made from %s ...", s);
+		if( connfd < 0 ) // -1 is error state 
+		{
+			WriteLog("Error encountered on accept() call, %d\n", errno);
+			if( ++ercount > 10 )
+			{
+				// stop trying
+				return;
+			}
+		}
+		else
+		{
+			errcount = 0;
+			// find out who connected:
+			inet_ntop(client_addr.ss_family, get_in_addr((struct sockaddr*)&client_addr), s, sizeof(s));
+			WriteLog( "Request for info made from %s ...", s);
+			// read in the http request data:
+			if( read(listenfd, requestBuff, 4096) > 0 )
+			{
+				// parse it:
+				map<string, string> m;
 
-	        ticks = time(0);
-		tm = *gmtime(&ticks);
+				istringstream req(requestBuff);
+				string header, url;
+				string::size_type index;
 
-		sprintf(content, "<!DOCTYPE html\">");
-		strcat(content, "<html><head><title>Test Page</title></head><body>");
-		char tempbuf[2048];
-		MyMessageMap->DumpAll(tempbuf, 2048);
-		strcat(content, tempbuf);
-		strcat(content, "</body></html>");
+				// first line should be something like GET /info HTTP/1.1
+				getline(req, url);
+				index = url.find(' ', 0)+1;
+				url = url.substr(index, url.find(' ', index)-index);
 
-		snprintf(sendBuff, sizeof(sendBuff), "HTTP/1.1 200 OK\r\n");
-	        write(connfd, sendBuff, strlen(sendBuff)); 
-	        snprintf(sendBuff, sizeof(sendBuff), "Server: pibrain\r\n");
-	        write(connfd, sendBuff, strlen(sendBuff));
-	        snprintf(sendBuff, sizeof(sendBuff), "Host: pibrain\r\n");
-	        write(connfd, sendBuff, strlen(sendBuff));
-	        strftime(sendBuff, sizeof(sendBuff), "Date: %a, %d %b %Y %H:%M:%S %Z\r\n", &tm);
-	        write(connfd, sendBuff, strlen(sendBuff));
-	        snprintf(sendBuff, sizeof(sendBuff), "Connection: Closed\r\n");
-	        write(connfd, sendBuff, strlen(sendBuff));
-	        snprintf(sendBuff, sizeof(sendBuff), "Content-Length: %d\r\n", strlen(content));
-	        write(connfd, sendBuff, strlen(sendBuff));
-	        snprintf(sendBuff, sizeof(sendBuff), "Content-Type: text/html; charset=UTF-8\r\n\r\n");
-	        write(connfd, sendBuff, strlen(sendBuff));
+				// followed by : separated list of headers:
+				while(getline(req, header) && header != "\r")
+				{
+					index = header.find(':', 0 );
+					if( index != string::npos)
+					{
+						m.insert(make_pair(
+							boost::algorithm::trim_copy(header.substr(0, index)), 
+							boost::algorithm::trim_copy(header.substr(index + 1))
+						));
+					}
+				}
+			}
 
-	        write(connfd, content, strlen(content));
+			ticks = time(0);
+			tm = *gmtime(&ticks);
 
-		//cerr << "Content sent...";
-		shutdown(connfd, SHUT_WR);
+			sprintf(content, "<!DOCTYPE html\">");
+			strcat(content, "<html><head><title>Test Page</title></head><body>");
+			strcat(content, "<h1>Url: ");
+			strcat(content, url);
+			strcat(content, "</h1>");
+			char tempbuf[2048];
+			MyMessageMap->DumpAll(tempbuf, 2048);
+			strcat(content, tempbuf);
+			strcat(content, "</body></html>");
+
+			snprintf(sendBuff, sizeof(sendBuff), "HTTP/1.1 200 OK\r\n");
+			write(connfd, sendBuff, strlen(sendBuff)); 
+			snprintf(sendBuff, sizeof(sendBuff), "Server: pibrain\r\n");
+			write(connfd, sendBuff, strlen(sendBuff));
+			snprintf(sendBuff, sizeof(sendBuff), "Host: pibrain\r\n");
+			write(connfd, sendBuff, strlen(sendBuff));
+			strftime(sendBuff, sizeof(sendBuff), "Date: %a, %d %b %Y %H:%M:%S %Z\r\n", &tm);
+			write(connfd, sendBuff, strlen(sendBuff));
+			snprintf(sendBuff, sizeof(sendBuff), "Connection: Closed\r\n");
+			write(connfd, sendBuff, strlen(sendBuff));
+			snprintf(sendBuff, sizeof(sendBuff), "Content-Length: %d\r\n", strlen(content));
+			write(connfd, sendBuff, strlen(sendBuff));
+			snprintf(sendBuff, sizeof(sendBuff), "Content-Type: text/html; charset=UTF-8\r\n\r\n");
+			write(connfd, sendBuff, strlen(sendBuff));
+
+		    write(connfd, content, strlen(content));
+
+			//cerr << "Content sent...";
+			shutdown(connfd, SHUT_WR);
        	 	close(connfd);
-		//cerr << "Closed\r\n";
+			//cerr << "Closed\r\n";
+		}
 		sleep(1);
 	}
 }
