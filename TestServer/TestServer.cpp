@@ -40,15 +40,16 @@ int main(int argc, char *argv[])
 
 void jlisten()
 {
-    int listenfd = 0, connfd = 0;
-    struct sockaddr_in serv_addr; 
-    struct sockaddr_storage client_addr;
+	int listenfd = 0, connfd = 0;
+    	struct sockaddr_in serv_addr; 
+   	struct sockaddr_storage client_addr;
 
-    char sendBuff[1024];
-    char content[2048];
-    char timebuf[256];
-    time_t ticks;
-    struct tm tm;
+	char sendBuff[1024];
+	char content[2048];
+	char parsebuf[1024];
+	char readbuf[4096];
+	time_t ticks;
+	struct tm tm;
 
     listenfd = socket(AF_INET, SOCK_STREAM, 0);
     memset(&serv_addr, '0', sizeof(serv_addr));
@@ -72,12 +73,15 @@ void jlisten()
 	inet_ntop(client_addr.ss_family, get_in_addr((struct sockaddr*)&client_addr), s, sizeof(s));
 	cout << "Connection made to " << s << "...";
 
+	read(connfd, readbuf, 4096);
+
         ticks = time(0);
 	tm = *gmtime(&ticks);
 
 	sprintf(content, "<!DOCTYPE html\">");
 	strcat(content, "<html><head><title>Test Page</title></head><body>");
 	strcat(content, "Hello World");
+	strcat(content, readbuf);
         strftime(timebuf, sizeof(timebuf), "Date:%a, %d %b %Y %H:%M:%S %Z\r\n", &tm);
 	strcat(content, timebuf);
 	strcat(content, "</body></html>");

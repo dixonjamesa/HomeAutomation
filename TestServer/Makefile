@@ -13,7 +13,8 @@
 CC=g++
 # The recommended compiler flags for the Raspberry Pi
 #CFLAGS = -Wall -std=c++11 -pthread
-CFLAGS = -Wall -std=c++11 -Ofast -mfpu=vfp -pthread -mfloat-abi=hard -march=armv6zk -mtune=arm1176jzf-s
+CFLAGS = -Wall -std=c++11 -pthread -Ofast 
+#-mfpu=vfp -pthread -mfloat-abi=hard -march=armv6zk -mtune=arm1176jzf-s
 
 # define all programs
 BIN = TestServer
