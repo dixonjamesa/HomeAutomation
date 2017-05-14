@@ -139,7 +139,7 @@ class HomeAutoNetwork
 		  RF24NetworkHeader header(0);
 		  Serial.print(F("Subscribing to channel:"));
 		  Serial.print(_channel);
-		  header.type = MSG_SUBSCRIBE;
+		  header.type = MSGG_SUBSCRIBE;
 		  regsub(&header, _type, _id, _channel);
 		}
 		
@@ -318,26 +318,31 @@ class HomeAutoNetwork
 			switch( header.type )
 			{
 				case MSG_UNKNOWN:
+				case MSGG_UNKNOWN:
 				{
 				  int sizeread = TheNetwork->read(header, &message, sizeof(message));
 				  OnUnknown(header.from_node, &message);
 				  break;
 				}
 				case MSG_IDENTIFY:
+				case MSGG_IDENTIFY:
 					TheNetwork->read(header, &message, sizeof(message));
 					// result of a failed AWAKEACK - we need to tell the sensor to re-register its stuff
-					sendAwake(MSG_AWAKE);
+					sendAwake(MSGG_AWAKE);
 					OnResetNeeded();
 					break;
 				case MSG_RESEND:
+				case MSGG_RESEND:
 					TheNetwork->read(header, &message, sizeof(message));
 					OnResendNeeded();
 					break;
 				case MSG_DATA:
+				case MSGG_DATA:
 					TheNetwork->read(header, &message, sizeof(message));
 					OnMessage(header.from_node, &message);
 					break;
 				case MSG_PING:
+				case MSGG_PING:
 					// just ignore
 					TheNetwork->read(header, &message, sizeof(message));
 					break;
@@ -378,7 +383,7 @@ class HomeAutoNetwork
 		{
 			int i;
 			RF24NetworkHeader writeHeader(0);
-			writeHeader.type = MSG_STATUS;
+			writeHeader.type = MSGG_STATUS;
 			for(i=0;i<10;i++)
 			{
 				if( TheNetwork->write(writeHeader, _message, strlen(_message)+3) )
@@ -391,7 +396,7 @@ class HomeAutoNetwork
 		int SendMessage(message_data *_message, int _datasize)
 		{
 			RF24NetworkHeader writeHeader(0);
-			writeHeader.type = MSG_DATA;
+			writeHeader.type = MSGG_DATA;
 			return TheNetwork->write(writeHeader, _message, _datasize+2); // 2 bytes for the message_data code and type fields, plus the data itself
 		}
 		
@@ -408,7 +413,7 @@ class HomeAutoNetwork
 				{
 					updateTimer = 0;
 					Serial.print(F("Trying to wake..."));
-					awakeOK = sendAwake(MSG_AWAKE);
+					awakeOK = sendAwake(MSGG_AWAKE);
 					if( awakeOK ) 
 					{
 						Serial.println(F("OK")); 
@@ -427,7 +432,7 @@ class HomeAutoNetwork
 				Serial.print(updateTimer);
 				Serial.print(F("..."));
 				// send an AWAKEACK message:
-				if( sendAwake(MSG_AWAKEACK) )
+				if( sendAwake(MSGG_AWAKEACK) )
 				{
 					// reset for another 30 (otherwise keep trying on next loop)
 					updateTimer = 0;
@@ -461,7 +466,7 @@ class HomeAutoNetwork
 		  // register with the controller anyway - it has its own redundancy checking
 		  RF24NetworkHeader header(0);
 		  Serial.print(F("Registering channel:"));
-		  header.type = MSG_REGISTER;
+		  header.type = MSGG_REGISTER;
 		  regsub(&header, t, code, c);
 		  
 		  // first check to make sure the code is unique...

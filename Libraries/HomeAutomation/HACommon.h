@@ -12,6 +12,19 @@
 #define MSG_STATUS 9 // send a status message to the server (which will be logged)
 #define MSG_RESEND 10 // re-send all your channel REGISTER and SUBSCRIBE settings please
 
+// guaranteed versions:
+#define MSGG_REGISTER 66
+#define MSGG_SUBSCRIBE 67
+#define MSGG_DATA 68 
+#define MSGG_PING 69
+#define MSGG_AWAKEACK 70
+#define MSGG_UNKNOWN 71
+#define MSGG_AWAKE 72
+#define MSGG_IDENTIFY 73
+#define MSGG_STATUS 74
+#define MSGG_RESEND 75 
+
+
 // Typical message order:
 // Client sends AWAKE
 //	- Server registers new node, deleting any previous information if there is a duplicate

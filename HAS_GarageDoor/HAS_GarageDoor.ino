@@ -141,6 +141,10 @@ class MyHANet: public HomeAutoNetwork
     RegisterChannel( DT_BYTE, 102, &backDoorSensorState, 0, "garage/bdoor", _restart); 
     
     RegisterChannel( DT_BYTE, 103, &rollerDoorSensorState, 0, "garage/gdoor", _restart); 
+
+    ForceSendRegisteredChannel(101);
+    ForceSendRegisteredChannel(102);
+    ForceSendRegisteredChannel(103);
     
     allInitialised = false;
   }
