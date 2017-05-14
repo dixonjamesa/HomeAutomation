@@ -3,10 +3,11 @@
 #include <mosquittopp.h>
 #include <iostream>
 #include <ctime>
-#include <stdio.h>
+#include <cstdio>
 #include <stdlib.h>
 #include <time.h>
 #include <list>
+#include <cstring>
 #include "../Libraries/HomeAutomation/HACommon.h"
 
 #ifndef __MESSAGEMAP_H
@@ -19,6 +20,7 @@ struct mapitem
 	uint16_t nodeid; // node id
 	unsigned char type; // DT_xxx from HACommon.h
 	unsigned char code; // id to send with message
+	std::string value; // current value as a string
 };
 
 // class to handle storage and retrieval of the message maps
@@ -35,7 +37,7 @@ class MessageMap
 	// Remove all messages registered by this node
 	void RemoveAll(uint16_t nodeid);
 	// log out all mapped items
-	void DumpAll(char *_out, int _buflen);
+	std::string DumpAll();
 };
 
 #endif

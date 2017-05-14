@@ -3,6 +3,7 @@
 #include <arpa/inet.h>
 #include <cstdio>
 #include <stdlib.h>
+#include <stdarg.h>
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
@@ -13,21 +14,35 @@
 
 using namespace std;
 
-void jlisten();
+void jlisten(int _portno);
+FILE *logfile;
 
-void * get_in_addr(struct sockaddr * addr)
+// write to logfile, if enabled...
+extern void WriteLog(const char *str, ...)
 {
-    if(addr->sa_family == AF_INET)
-    {
-	return &(((struct sockaddr_in *)addr)->sin_addr);
-    }
-    return &(((sockaddr_in6 *)addr)->sin6_addr);
+	if( logfile)
+	{
+	    std::time_t t = time(0);   // get time now
+		struct tm * now = localtime( & t );
+		va_list args;
+		va_start(args, str);
+		fprintf(logfile, "%d-%d-%d %2d:%2d:%2d: ", now->tm_year+1900,now->tm_mon, now->tm_mday, now->tm_hour, now->tm_min, now->tm_sec);
+		vfprintf(logfile, str, args);
+		
+		// and to console as well:
+		printf("%d-%d-%d %2d:%2d:%2d: ", now->tm_year+1900,now->tm_mon, now->tm_mday, now->tm_hour, now->tm_min, now->tm_sec);
+		vprintf(str, args);
+	}
 }
+
 
 int main(int argc, char *argv[])
 {
 	int i;
-	thread t1(jlisten);
+
+	logfile = fopen("TestLog", "w");
+
+	thread t1(jlisten, 5010);
 
 	for(i=0;i<100;i++)
 	{
@@ -38,6 +53,22 @@ int main(int argc, char *argv[])
 }
 
 
+string GenerateContents(string _url)
+{
+	string content;
+
+	content = "<!DOCTYPE html\">";
+	content += "<html><head><title>Test Page</title></head><body>";
+	content += "<h1>Url: ";
+	content += _url;
+	content += "</h1>";
+	content += "<br/>";
+	content += "</body></html>";
+	return content;
+}
+
+
+#if false
 void jlisten()
 {
 	int listenfd = 0, connfd = 0;
@@ -82,8 +113,8 @@ void jlisten()
 	strcat(content, "<html><head><title>Test Page</title></head><body>");
 	strcat(content, "Hello World");
 	strcat(content, readbuf);
-        strftime(timebuf, sizeof(timebuf), "Date:%a, %d %b %Y %H:%M:%S %Z\r\n", &tm);
-	strcat(content, timebuf);
+        //strftime(timebuf, sizeof(timebuf), "Date:%a, %d %b %Y %H:%M:%S %Z\r\n", &tm);
+	//strcat(content, timebuf);
 	strcat(content, "</body></html>");
 
 
@@ -112,3 +143,4 @@ void jlisten()
         sleep(1);
      }
 }
+#endif

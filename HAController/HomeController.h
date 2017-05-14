@@ -10,8 +10,11 @@
 #include <stdlib.h>
 #include <time.h>
 #include <list>
+#include <string>
 #include "../Libraries/HomeAutomation/HACommon.h"
 #include "MessageMap.h"
+
+extern void WriteLog(const char *str, ...);
 
 // SensorList class
 // track what sensor nodes have woken up
@@ -22,6 +25,7 @@ class SensorList
 		{
 			int nodeid;
 			int strikes; // keeps a count of how many sequential failed communication attempts there have been
+			std::string status;
 		};
 		
 		std::list<SensorNodeData *> NodeList;
@@ -31,9 +35,12 @@ class SensorList
 		// see if a sensor is in the list. If it is, we reset the strike count
 		bool ConfirmSensor(int nodeid);
 		bool StrikeNode(int nodeid);
+		void SetStatus(int nodeid, std::string _status);
 		
 		// go round all the sensors seeing if they respond...
 		void CheckSensors();
+		
+		std::string DumpAll();
 };
 
 extern SensorList *MySensors;
@@ -53,7 +60,7 @@ class MyMosquitto : public mosqpp::mosquittopp
 	std::list<qMessage *> queuedMessages;
 
 	public:
-	MyMosquitto() : mosqpp::mosquittopp ("PiBrain") { mosqpp::lib_init(); }
+	MyMosquitto() : mosqpp::mosquittopp ("PiBrain") { mosqpp::lib_init(); connect("127.0.0.1"); }
 
 	virtual void on_connect (int rc);
 	virtual void on_disconnect ();

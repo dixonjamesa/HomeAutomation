@@ -2,6 +2,7 @@
 #include <RF24Network/RF24Network.h>
 #include <mosquittopp.h>
 #include <iostream>
+#include <sstream>
 #include <ctime>
 #include <stdio.h>
 #include <stdlib.h>
@@ -94,24 +95,21 @@ void MessageMap::RemoveAll(uint16_t nodeid)
 	}
 }
 
-// output all maps to _out
-void MessageMap::DumpAll(char *_out, int _buflen)
+// output all maps
+std::string MessageMap::DumpAll()
 {
-	char tbuf[128];
-	int written;
-	written = snprintf(_out, _buflen, "<table border=\"1\"><tr><th>Channel</th><th>0=sub, 1=reg</th><th>nodeid</th><th>type</th><th>code</th></tr>");
+	std::string output;
+	
+	output = "<table border=\"1\"><tr><th>Channel</th><th>0=sub, 1=reg</th><th>nodeid</th><th>type</th><th>code</th><th>Value</th></tr>";
 	for( std::list<mapitem *>::const_iterator iterator = all.begin(), end = all.end();
 			iterator != end; iterator++)
 	{
-		int len;
 		mapitem *mi = *iterator;
-		len = sprintf(tbuf, "<tr><td>%s</td><td>%d</td><td>%d</td><td>%d</td><td>%d</td></tr>", mi->channel, mi->isreg, mi->nodeid, mi->type, mi->code);
-		if(written+len+9 < _buflen)
-		{
-			written += len;
-			strcat(_out, tbuf);
-		}
+		std::stringstream ss;
+		ss << "<tr><td>" << mi->channel << "</td><td>" << mi->isreg << "</td><td>"<< mi->nodeid << "</td><td>"<< (int)mi->type <<"</td><td>"<< (int)mi->code <<"</td><td>"<< mi->value <<"</td></tr>";
+		output += ss.str();
 	}
-	strcat(_out, "</table>");
+	output += "</table>";
+	return output;
 }
 

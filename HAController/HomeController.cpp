@@ -3,6 +3,7 @@
 #include <mosquittopp.h>
 #include <stdlib.h>
 #include <iostream>
+#include <sstream>
 #include <ctime>
 #include <cstdio>
 #include <unistd.h>
@@ -11,6 +12,7 @@
 #include <time.h>
 #include <list>
 #include <map>
+#include <exception>
 #include <thread>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -18,7 +20,6 @@
 #include "../Libraries/HomeAutomation/HACommon.h"
 #include "MessageMap.h"
 #include "HomeController.h"
-#include <boost/algorithm/string.hpp>
 
 using namespace std;
 
@@ -29,24 +30,17 @@ using namespace std;
 // an RF24 node can either subscribe to a channel to receive updates from mqtt, or register a channel, to provide updates itself to mqtt
 
 
-
 FILE *logfile;
 char strbuffer[1024]; // used to build up a log message
 char tbuffer[512]; // temporary buffer
-void jlisten();
+void jlisten(int _portno);
+bool QuittinTime = false;
+int SocketId = 0;
 
-// get a socket in_address
-void * get_in_addr(struct sockaddr * addr)
-{
-    if(addr->sa_family == AF_INET)
-    {
-	return &(((struct sockaddr_in *)addr)->sin_addr);
-    }
-    return &(((sockaddr_in6 *)addr)->sin6_addr);
-}
+void tail(FILE* in, string _to, int n);
 
 // write to logfile, if enabled...
-void WriteLog(const char *str, ...)
+extern void WriteLog(const char *str, ...)
 {
 	if( logfile)
 	{
@@ -62,6 +56,7 @@ void WriteLog(const char *str, ...)
 		vprintf(str, args);
 	}
 }
+
 
 
 MessageMap *MyMessageMap;
@@ -194,7 +189,7 @@ bool SensorList::StrikeNode(int nodeid)
 	// send an IDENTIFY message to tell this node we don't know who it is
 	int retries = 4;
 	RF24NetworkHeader txheader(nodeid);
-	txheader.type = MSG_IDENTIFY;
+	txheader.type = MSGG_IDENTIFY;
 	while ( retries-- > 0 && !network.write(txheader, NULL, 0))
 	{
 		delay(50);
@@ -211,18 +206,56 @@ bool SensorList::StrikeNode(int nodeid)
 #endif
 }
 
+void SensorList::SetStatus(int nodeid, std::string _status)
+{
+	SensorNodeData *snd;
+	for( list<SensorNodeData *>::iterator iterator = NodeList.begin(), end = NodeList.end();
+			iterator != end; iterator++)
+	{
+		snd = *iterator;
+		if( snd->nodeid == nodeid )
+		{
+			snd->status = _status;
+			return;
+		}
+	}
+	WriteLog("Received status from unregistered node");
+}
+
+// output all sensor states
+std::string SensorList::DumpAll()
+{
+	std::string output;
+	
+	output = "<table border=\"1\"><tr><th>ID</th><th>Strikes</th><th>Status</th></tr>";
+	SensorNodeData *snd;
+	for( list<SensorNodeData *>::iterator iterator = NodeList.begin(), end = NodeList.end();
+			iterator != end; iterator++)
+	{
+		snd = *iterator;
+		std::stringstream ss;
+		ss << "<tr><td>" << snd->nodeid%8 << "." << (snd->nodeid/8)%8 << "." << (snd->nodeid/64)%8 <<"</td>";
+		ss << "<td>" << snd->strikes << "</td>";
+		ss << "<td>" << snd->status << "</td>";
+		ss << "</tr>";
+		output += ss.str();
+	}
+	output += "</table>";
+	return output;
+}
+
 // go round all the sensors seeing if they respond...
 void SensorList::CheckSensors()
 {
 	//WriteLog("Sensor Check...\n");
 	SensorNodeData *snd;
 	for( list<SensorNodeData *>::iterator iterator = NodeList.begin(), end = NodeList.end();
-			iterator != end; /* deliberately nothing */)
+			iterator != end; /* deliberately nothing because we may be modifying the list */)
 	{
 		snd = *iterator;
 		// Send message on RF24 network
 		RF24NetworkHeader header(snd->nodeid);
-		header.type = MSG_PING;
+		header.type = MSGG_PING;
 		if (!network.write(header, NULL, 0) )
 		{
 			if( ++snd->strikes > 10 )
@@ -251,7 +284,17 @@ void SensorList::CheckSensors()
 	}
 }
 
-void MyMosquitto::on_connect (int rc) { WriteLog( "Connected to Mosquitto\n"); }
+void MyMosquitto::on_connect (int rc) 
+{ 
+	if( rc == 0 )
+	{
+		WriteLog( "Connected to Mosquitto\n"); 	
+	}
+	else
+	{
+		WriteLog("Impossible to connect to MQTT server, %d\n", rc);
+	}
+}
 
 void MyMosquitto::on_disconnect () { WriteLog( "Disconnected from Mosquitto\n"); }
 
@@ -286,6 +329,7 @@ void MyMosquitto::on_message(const struct mosquitto_message* mosqmessage)
 		// Create message to send via RF24
 		message_data datamessage;
 		int datasize = 2; // header is 2 bytes
+		item->value = (char*)mosqmessage->payload;
 		switch( item->type )
 		{
 			case DT_BOOL:
@@ -345,7 +389,7 @@ void MyMosquitto::on_message(const struct mosquitto_message* mosqmessage)
 			break;
 			case DT_TEXT:
 			{
-				datamessage = (message_data){ item->code, DT_INT32, 0};
+				datamessage = (message_data){ item->code, DT_TEXT, 0};
 				strcpy( datamessage.data, (char*)mosqmessage->payload);
 				datamessage.data[MAXDATALENGTH-1] = 0; // ensure it's 0 terminated
 				datasize += strlen(datamessage.data)+1;
@@ -359,7 +403,7 @@ void MyMosquitto::on_message(const struct mosquitto_message* mosqmessage)
 		}
 		// Send message on RF24 network
 		RF24NetworkHeader header(item->nodeid);
-		header.type = MSG_DATA;
+		header.type = MSGG_DATA;
 		if (network.write(header, &datamessage, datasize))
 		{
 			strcat(strbuffer, "OK\n");
@@ -386,7 +430,7 @@ void MyMosquitto::ProcessQueue()
 	{
 		qMessage *mess = *iterator;
 		RF24NetworkHeader header(mess->nodeid);
-		header.type = MSG_DATA;
+		header.type = MSGG_DATA;
 		if (network.write(header, &mess->message, mess->datasize))
 		{
 			// all good - remove the queued message
@@ -414,434 +458,434 @@ void MyMosquitto::ProcessQueue()
 
 int main(int argc, char** argv)
 {
-	// Initialize all radio related modules
-	radio.begin();
-	radio.setRetries(11,15);
-	delay(5);
-	network.begin(120, 0); // we are the master, node 0
-	network.txTimeout = 500;
-	
-	MyMessageMap = new MessageMap();
-	MySensors = new SensorList();
-	mosquittoBroker = new MyMosquitto();
-
-	// set input to non-blocking:
-	fcntl (0, F_SETFL, O_NONBLOCK);
-	
-	// Print some radio details (for debug purposes)
-	radio.printDetails();
-
-	network.update();
-
-	mosquittoBroker->connect("127.0.0.1");
-	printf("Starting log\n");
-	logfile = fopen("HALog", "w");
-	if (logfile)
+	try
 	{
-		//----- FILE EXISTS -----
-		printf("Logging started\n");
-		WriteLog("Logging started\n");
-	}
-	else
-	{
-		//----- FILE NOT FOUND -----
-		printf("failed to start logging\n");
-	}
-	WriteLog("Initializing web server...\n");
-	
-	// kick off the jlisten function on a separate thread...
-	thread serverThread(jlisten);
-	
-	WriteLog( "Listening...\n");
-	while (true)
-	{
-		// Get the latest network info
+		// Initialize all radio related modules
+		radio.begin();
+		radio.setRetries(11,15); //15 retries, at 11*250us intervals
+		radio.setPALevel(RF24_PA_MAX); // mr shouty, because we don't really care about power saving.
+		delay(5);
+		network.begin(120, 0); // we are the master, node 0
+		//network.txTimeout = 500;
+		
+		MyMessageMap = new MessageMap();
+		MySensors = new SensorList();
+		mosquittoBroker = new MyMosquitto();
+
+		// set input to non-blocking:
+		fcntl (0, F_SETFL, O_NONBLOCK);
+		
+		// Print some radio details (for debug purposes)
+		radio.printDetails();
+
 		network.update();
+
+		printf("Starting log\n");
+		logfile = fopen("HALog", "w");
+		if (logfile)
+		{
+			//----- FILE EXISTS -----
+			printf("Logging started\n");
+			WriteLog("Logging started\n");
+		}
+		else
+		{
+			//----- FILE NOT FOUND -----
+			printf("failed to start logging\n");
+		}
+		WriteLog("Initializing web server...\n");
+		
+		// kick off the jlisten function on a separate thread...
+		// PortNum is passed from the Makefile
+		thread serverThread(jlisten, PortNum);
 		mosquittoBroker->ProcessQueue();
 		
-		// Enter this loop if there is data available to be read,
-		// and continue it as long as there is more data to read
-		while ( network.available() )
+		WriteLog( "Listening...\n");
+		while (!QuittinTime)
 		{
-			*strbuffer = 0;
-			//sprintf(strbuffer, "MESSAGE:");				
-			RF24NetworkHeader header;
-			// Have a peek at the data to see the header type
-			network.peek(header);
-			switch( header.type )
+			// Get the latest network info
+			network.update();
+			mosquittoBroker->ProcessQueue();
+			
+			// Enter this loop if there is data available to be read,
+			// and continue it as long as there is more data to read
+			while ( network.available() )
 			{
-				case MSG_AWAKE:
+				*strbuffer = 0;
+				//sprintf(strbuffer, "MESSAGE:");				
+				RF24NetworkHeader header;
+				// Have a peek at the data to see the header type
+				network.peek(header);
+				switch( header.type )
 				{
-					message_data receipt;
-					network.read(header, &receipt, sizeof(receipt));
-					sprintf(tbuffer, "AWAKE from node %o, channel root %s\n", header.from_node, receipt.data);
-					strcat(strbuffer, tbuffer);
-					// add this sensor (removes any messages stored previously for this node...)
-					MySensors->AddSensor(header.from_node);
-					char buffer[128];
-					sprintf (buffer, "mosquitto_pub -t %s/wake -m 1", receipt.data);
-							strcat(strbuffer,"PUBLISH:");
-							strcat(strbuffer, buffer);
-							strcat(strbuffer,"\n");
-					system(buffer);
-				}
-				break;
-				case MSG_AWAKEACK:
-					message_data receipt;
-					network.read(header, &receipt, sizeof(receipt));
-					if( MySensors->ConfirmSensor(header.from_node) )
+					case MSG_AWAKE:
+					case MSGG_AWAKE:
 					{
-						// all fine
+						message_data receipt;
+						network.read(header, &receipt, sizeof(receipt));
+						WriteLog("AWAKE from node %o, channel root %s\n", header.from_node, receipt.data);
+						// add this sensor (removes any messages stored previously for this node...)
+						MySensors->AddSensor(header.from_node);
+						char buffer[128];
+						sprintf (buffer, "mosquitto_pub -t %s/wake -m 1", receipt.data);
+								strcat(strbuffer,"PUBLISH:");
+								strcat(strbuffer, buffer);
+								strcat(strbuffer,"\n");
+						system(buffer);
 					}
-					else
-					{
-						sprintf(tbuffer, "AWAKEACK from node %o, ", header.from_node);
-						strcat(strbuffer, tbuffer);
-						int retries = 4;
-						// not present, so tell the node...
-						RF24NetworkHeader txheader(header.from_node);
-						txheader.type = MSG_IDENTIFY;
-						while ( retries-- > 0 && !network.write(txheader, NULL, 0))
+					break;
+					case MSG_AWAKEACK:
+					case MSGG_AWAKEACK:
+						message_data receipt;
+						network.read(header, &receipt, sizeof(receipt));
+						if( MySensors->ConfirmSensor(header.from_node) )
 						{
-							// let's just wait until next awake is sent.
-							delay(5);
-						}
-						if( retries <= 0 )
-						{
-							strcat(strbuffer,"not registered, MSG_IDENTIFY response failed\n");
+							// all fine
 						}
 						else
 						{
-							strcat(strbuffer,"not registered, Sent MSG_IDENTIFY in reply\n");
+							sprintf(tbuffer, "AWAKEACK from node %o, ", header.from_node);
+							strcat(strbuffer, tbuffer);
+							int retries = 4;
+							// not present, so tell the node...
+							RF24NetworkHeader txheader(header.from_node);
+							txheader.type = MSGG_IDENTIFY;
+							while ( retries-- > 0 && !network.write(txheader, NULL, 0))
+							{
+								// let's just wait until next awake is sent.
+								delay(5);
+							}
+							if( retries <= 0 )
+							{
+								strcat(strbuffer,"not registered, MSG_IDENTIFY response failed\n");
+							}
+							else
+							{
+								strcat(strbuffer,"not registered, Sent MSG_IDENTIFY in reply\n");
+							}
 						}
-					}
-				break;
-				case MSG_REGISTER:
-				{
-					char channel[128];
-					message_subscribe message;
-					network.read(header, &message, sizeof(message));
-					sprintf(channel, "%s", message.channel);
-					mapitem *item = MyMessageMap->Match(header.from_node, message.code, true);
-					if( item != NULL )
+					break;
+					case MSG_REGISTER:
+					case MSGG_REGISTER:
 					{
-						// Produces a lot of spew, due to non-guaranteed network delivery (ie messages get sent multiple times)
-						//sprintf(tbuffer, "Node %o trying to re-register code %d for channel %s, but already on channel %s with code %d; IGNORED\n", header.from_node, message.code, channel, item->channel, item->code);
-						//strcat(strbuffer, tbuffer);
-					}
-					else
-					{
-						MyMessageMap->AddMap(channel,header.from_node, message.type, message.code, true);
-						sprintf(tbuffer, "Node %o registered channel %s with code %d\n", header.from_node, channel, message.code);
-						strcat(strbuffer, tbuffer);
-					}
-				}
-				break;
-				case MSG_SUBSCRIBE:
-				{
-					char channel[128];
-					message_subscribe message;
-					network.read(header, &message, sizeof(message));
-					sprintf(channel, "%s", message.channel);
-					mapitem *item = MyMessageMap->Match(header.from_node, message.code, false);
-					if( item != NULL )
-					{
-						// Produces a lot of spew, due to non-guaranteed network delivery (ie messages get sent multiple times)
-						//sprintf(tbuffer, "Node %o trying to re-subscribe code %d for channel %s, but already on channel %s with code %d; IGNORED\n", header.from_node, message.code, channel, item->channel, item->code);
-						//strcat(strbuffer, tbuffer);
-					}
-					else
-					{
-						MyMessageMap->AddMap(channel,header.from_node, message.type, message.code, false);
-						sprintf(tbuffer, "Node %o subscribed to channel %s using code %d\n", header.from_node, channel, message.code);				
-						strcat(strbuffer, tbuffer);
-					}
-				}
-				break;
-				case MSG_STATUS:
-				{ // just log the message:
-					char *message;
-					/*int datasize =*/ network.read(header, &message, sizeof(message));
-					sprintf(tbuffer, "Node %o sent status message: %s", header.from_node, message);
-					strcat(strbuffer, tbuffer);
-				}
-				break;
-				case MSG_DATA:
-				{
-					message_data message;
-					int datasize = network.read(header, &message, sizeof(message));
-					sprintf(tbuffer, "Node %o sent code %d (%d bytes) ", header.from_node, message.code, datasize);
-					strcat(strbuffer, tbuffer);
-					mapitem *item = MyMessageMap->Match(header.from_node, message.code, true);
-					if( item == NULL )
-					{
-						sprintf(tbuffer, "\nFailed to match item... sending UNKNOWN back to node %o...", header.from_node);
-						strcat(strbuffer, tbuffer);
-						// send MSG_UNKNOWN back to this node, with the same message data...
-						RF24NetworkHeader txheader(header.from_node);
-						txheader.type = MSG_UNKNOWN;
-						if (network.write(txheader, &message, datasize))
+						char channel[128];
+						message_subscribe message;
+						network.read(header, &message, sizeof(message));
+						sprintf(channel, "%s", message.channel);
+						mapitem *item = MyMessageMap->Match(header.from_node, message.code, true);
+						if( item != NULL )
 						{
-							strcat(strbuffer, "OK\n");
+							// already registered. Probably just a "safety" check - but report if channel/code don't match:
+							if( strcmp(channel, item->channel) || message.code != item->code )
+							{
+								sprintf(tbuffer, "***WARNING*** Node %o trying to re-register code %d for channel %s, but already on channel %s with code %d; IGNORED\n", header.from_node, message.code, channel, item->channel, item->code);
+								strcat(strbuffer, tbuffer);
+							}
 						}
 						else
 						{
-							strcat(strbuffer, "FAIL\n");
+							MyMessageMap->AddMap(channel,header.from_node, message.type, message.code, true);
+							sprintf(tbuffer, "Node %o registered channel %s with code %d\n", header.from_node, channel, message.code);
+							strcat(strbuffer, tbuffer);
 						}
-						
 					}
-					else
+					break;
+					case MSG_SUBSCRIBE:
+					case MSGG_SUBSCRIBE:
 					{
-						char buffer [128];
-						switch(message.type)
+						char channel[128];
+						message_subscribe message;
+						network.read(header, &message, sizeof(message));
+						sprintf(channel, "%s", message.channel);
+						mapitem *item = MyMessageMap->Match(header.from_node, message.code, false);
+						if( item != NULL )
 						{
-							case DT_BOOL:
-							{
-								bool result = message.data[0];
-								sprintf(tbuffer, " = %s (BOOL %d)\n", item->channel, result);
-								strcat(strbuffer, tbuffer);
-								sprintf (buffer, "mosquitto_pub -t %s -m \"%s\"", item->channel, result?"ON":"OFF");
-								system(buffer);
-							}
-							break;
-							case DT_TOGGLE:
-							{
-								sprintf(tbuffer, " = %s (TOGGLE)\n", item->channel);
-								strcat(strbuffer, tbuffer);
-								sprintf (buffer, "mosquitto_pub -t %s -m \"TOGGLE\"", item->channel);
-								system(buffer);
-							}
-							break;
-							case DT_FLOAT:
-							{
-								float result;
-								memcpy(&result, message.data, 4);
-								sprintf(tbuffer, " = %s (FLOAT %f)\n", item->channel, result);
-								strcat(strbuffer, tbuffer);
-								sprintf (buffer, "mosquitto_pub -t %s -m \"%f\"", item->channel, result);
-								system(buffer);
-							}
-							break;
-							case DT_BYTE:
-							{
-								char result;
-								result = *message.data;
-								sprintf(tbuffer, " = %s (BYTE %d)\n", item->channel, result);
-								strcat(strbuffer, tbuffer);
-								sprintf (buffer, "mosquitto_pub -t %s -m \"%d\"", item->channel, result);
-								system(buffer);
-							}
-							break;
-							case DT_INT16:
-							{
-								short result;
-								memcpy(&result, message.data, 2);
-								sprintf(tbuffer, " = %s (INT16 %d)\n", item->channel, result);
-								strcat(strbuffer, tbuffer);
-								sprintf (buffer, "mosquitto_pub -t %s -m \"%d\"", item->channel, result);
-								system(buffer);
-							}
-							break;
-							case DT_INT32:
-							{
-								long result;
-								memcpy(&result, message.data, 4);
-								sprintf(tbuffer, " = %s (INT32 %ld)\n", item->channel, result);
-								strcat(strbuffer, tbuffer);
-								sprintf (buffer, "mosquitto_pub -t %s -m \"%ld\"", item->channel, result);
-								system(buffer);
-							}
-							break;
-							case DT_TEXT:
-								sprintf(tbuffer, " = %s (TEXT %s)\n", item->channel, (char *)message.data);
-								strcat(strbuffer, tbuffer);
-								sprintf (buffer, "mosquitto_pub -t %s -m \"%s\"", item->channel, (char *)message.data);
-								system(buffer);
-								break;
-							default:
-								sprintf(tbuffer, "(unrecognised data type, %d)", message.type );
-								strcat(strbuffer, tbuffer);
-								break;
+							// Produces a lot of spew, due to non-guaranteed network delivery (ie messages get sent multiple times)
+							//sprintf(tbuffer, "Node %o trying to re-subscribe code %d for channel %s, but already on channel %s with code %d; IGNORED\n", header.from_node, message.code, channel, item->channel, item->code);
+							//strcat(strbuffer, tbuffer);
+						}
+						else
+						{
+							MyMessageMap->AddMap(channel,header.from_node, message.type, message.code, false);
+							sprintf(tbuffer, "Node %o subscribed to channel %s using code %d\n", header.from_node, channel, message.code);				
+							strcat(strbuffer, tbuffer);
 						}
 					}
-				}
-				break;
-				default:
-				{
-					// This is not a type we recognize	
-					message_data message;
-					network.read(header, &message, sizeof(message));
-					sprintf(tbuffer, "Unknown message %d received from node %i\n", header.type,  header.from_node);				
-					strcat(strbuffer, tbuffer);
-				}
-				break;
-			} // switch (header.type)
-			if( *strbuffer != 0 ) WriteLog(strbuffer);
-		} // while (network.available())
+					break;
+					case MSG_STATUS:
+					case MSGG_STATUS:
+					{ // just log the message:
+						char message[128];
+						/*int datasize =*/ network.read(header, &message, 128);
+						message[127]=0; // ensure null terminated
+						sprintf(tbuffer, "Node %o sent status message: %s\n", header.from_node, message);
+						strcat(strbuffer, tbuffer);
+						MySensors->SetStatus(header.from_node, message);
+					}
+					break;
+					case MSG_DATA:
+					case MSGG_DATA:
+					{
+						message_data message;
+						int datasize = network.read(header, &message, sizeof(message));
+						sprintf(tbuffer, "Node %o sent code %d (%d bytes) ", header.from_node, message.code, datasize);
+						strcat(strbuffer, tbuffer);
+						mapitem *item = MyMessageMap->Match(header.from_node, message.code, true);
+						if( item == NULL )
+						{
+							sprintf(tbuffer, "\nFailed to match item... sending UNKNOWN back to node %o...", header.from_node);
+							strcat(strbuffer, tbuffer);
+							// send MSG_UNKNOWN back to this node, with the same message data...
+							RF24NetworkHeader txheader(header.from_node);
+							txheader.type = MSGG_UNKNOWN;
+							if (network.write(txheader, &message, datasize))
+							{
+								strcat(strbuffer, "OK\n");
+							}
+							else
+							{
+								strcat(strbuffer, "FAIL\n");
+							}
+							
+						}
+						else
+						{
+							char buffer [128];
+							switch(message.type)
+							{
+								case DT_BOOL:
+								{
+									bool result = message.data[0];
+									sprintf(tbuffer, " = %s (BOOL %d)\n", item->channel, result);
+									strcat(strbuffer, tbuffer);
+									sprintf (buffer, "mosquitto_pub -t %s -m \"%s\"", item->channel, result?"ON":"OFF");
+									system(buffer);
+									item->value = result?"ON":"OFF";
+								}
+								break;
+								case DT_TOGGLE:
+								{
+									sprintf(tbuffer, " = %s (TOGGLE)\n", item->channel);
+									strcat(strbuffer, tbuffer);
+									sprintf (buffer, "mosquitto_pub -t %s -m \"TOGGLE\"", item->channel);
+									system(buffer);
+									item->value = "Toggle";
+								}
+								break;
+								case DT_FLOAT:
+								{
+									float result;
+									memcpy(&result, message.data, 4);
+									sprintf(tbuffer, " = %s (FLOAT %f)\n", item->channel, result);
+									strcat(strbuffer, tbuffer);
+									sprintf (buffer, "mosquitto_pub -t %s -m \"%f\"", item->channel, result);
+									system(buffer);
+									sprintf(buffer,"%f", result);
+									item->value = buffer;
+								}
+								break;
+								case DT_BYTE:
+								{
+									char result;
+									result = *message.data;
+									sprintf(tbuffer, " = %s (BYTE %d)\n", item->channel, result);
+									strcat(strbuffer, tbuffer);
+									sprintf (buffer, "mosquitto_pub -t %s -m \"%d\"", item->channel, result);
+									system(buffer);
+									sprintf(buffer,"%d", result);
+									item->value = buffer;
+								}
+								break;
+								case DT_INT16:
+								{
+									short result;
+									memcpy(&result, message.data, 2);
+									sprintf(tbuffer, " = %s (INT16 %d)\n", item->channel, result);
+									strcat(strbuffer, tbuffer);
+									sprintf (buffer, "mosquitto_pub -t %s -m \"%d\"", item->channel, result);
+									system(buffer);
+									sprintf(buffer,"%d", result);
+									item->value = buffer;
+								}
+								break;
+								case DT_INT32:
+								{
+									long result;
+									memcpy(&result, message.data, 4);
+									sprintf(tbuffer, " = %s (INT32 %ld)\n", item->channel, result);
+									strcat(strbuffer, tbuffer);
+									sprintf (buffer, "mosquitto_pub -t %s -m \"%ld\"", item->channel, result);
+									system(buffer);
+									sprintf(buffer,"%ld", result);
+									item->value = buffer;
+								}
+								break;
+								case DT_TEXT:
+									sprintf(tbuffer, " = %s (TEXT %s)\n", item->channel, (char *)message.data);
+									strcat(strbuffer, tbuffer);
+									sprintf (buffer, "mosquitto_pub -t %s -m \"%s\"", item->channel, (char *)message.data);
+									system(buffer);
+									item->value = (char*)message.data;
+									break;
+								default:
+									sprintf(tbuffer, "(unrecognised data type, %d)", message.type );
+									strcat(strbuffer, tbuffer);
+									break;
+							}
+						}
+					}
+					break;
+					default:
+					{
+						// This is not a type we recognize	
+						message_data message;
+						network.read(header, &message, sizeof(message));
+						sprintf(tbuffer, "Unknown message %d received from node %i\n", header.type,  header.from_node);				
+						strcat(strbuffer, tbuffer);
+					}
+					break;
+				} // switch (header.type)
+				if( *strbuffer != 0 ) WriteLog(strbuffer);
+			} // while (network.available())
 
-		// Check for messages on our subscribed channels
-		mosquittoBroker->loop();
+			// Check for messages on our subscribed channels
+			mosquittoBroker->loop();
 
-		delay(interval);
-		if(logfile) fflush(logfile);
+			delay(interval);
+			if(logfile) fflush(logfile);
+			fflush(stdout);
+			
+			// Periodically see if all the sensors we are aware of are still up and responding...
+			timespan += interval;
+			if( timespan > 60000 )
+			{
+				WriteLog("Checking All Sensors...\n");
+				MySensors->CheckSensors();
+				timespan = 0;
+			}
+			
+			// user commands:
+			string userinput;
+			cin >> userinput;
+			cin.clear();
+			cin.sync();
+			/*if( userinput != "")
+			{
+				cout << "COMMAND: " << userinput;
+			}*/
+			if( userinput == "q" || userinput == "quit" )
+			{
+				// out of the loop and quit...
+				QuittinTime = true;
+				// shutdown the socket so the listener thread stops blocking on accept
+				shutdown(SocketId, SHUT_RDWR);
+			}
+		} // while (true)
 		
-		// Periodically see if all the sensors we are aware of are still up and responding...
-		timespan += interval;
-		if( timespan > 60000 )
-		{
-			WriteLog("Checking All Sensors...\n");
-			MySensors->CheckSensors();
-			timespan = 0;
-		}
-		int v;
-		read(0,&v, 1);
-		if( v == 109 )
-		{
-			printf("MEssage Dump:\n");
-			char tempbuf[1024];
-			// press M then Enter...
-			// So list out all the messages mapped:
-			MyMessageMap->DumpAll(tempbuf, 1024);			
-			printf(tempbuf);
-		}
-	} // while (true)
-	
-	fclose(logfile);
-	serverThread.join();
-
+		fclose(logfile);
+		serverThread.join();
+	}
+	catch(exception e)
+	{
+		cerr << e.what();
+	}
 	// last thing we do before we end things
 	return 0;
 }
 
-/// Listen for network traffic, and serve up some data as required
-/// We are listening on port 5001
-void jlisten()
+/// 
+// Generates web page content, based on passed url
+string GenerateContents(string _url)
 {
-	int listenfd = 0, connfd = 0;
-    	struct sockaddr_in serv_addr; 
-    	struct sockaddr_storage client_addr;
+	string content;
 
-	char sendBuff[256];
-	char requestBuff[4096];
-	char content[2500];
-	time_t ticks;
-	struct tm tm;
-	int errcount = 0;
-
-	// create a socket:
-	listenfd = socket(AF_INET, SOCK_STREAM, 0);
-	if( listenfd == -1 )
+	content = "<!DOCTYPE html\">";
+	content += "<html><head><title>Test Page</title></head><body>";
+	
+	if( _url == "/info" )
 	{
-		WriteLog( "Server socket could not be created, error %d\n", errno);
-		return;
+		content += "<h1>Url: ";
+		content += _url;
+		content += "</h1>";
 	}
-	memset(&serv_addr, '0', sizeof(serv_addr));
-	memset(sendBuff, '0', sizeof(sendBuff)); 
-
-	serv_addr.sin_family = AF_INET;
-	serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-	serv_addr.sin_port = htons(5001); 
-
-	// bind to the socket
-	if( bind(listenfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) == -1 )
+	else if( _url == "/map" )
 	{
-		WriteLog( "Server failed to bind to socket with error %d\n", errno);
-		return;
+		content += MyMessageMap->DumpAll();
 	}
-	if( listen(listenfd, 5) == -1 )
+	else if( _url == "/nodes" )
 	{
-		WriteLog( "Server listen failed with error %d\n", errno);
-		return;
+		content += MySensors->DumpAll();
 	}
-
-	char s[INET6_ADDRSTRLEN];
-	socklen_t addr_size = sizeof(client_addr);
-
-	WriteLog( "Server listening\n");
-	while(1)
+	else if( _url == "/log" )
 	{
-		// blocking call to wait for a connection on the socket:
-		connfd = accept(listenfd, (struct sockaddr*)&client_addr, &addr_size); 
-
-		if( connfd < 0 ) // -1 is error state 
+		FILE* fp;
+		// Open file
+		fp = fopen("/home/pi/HomeAutomation/HAController/HALog", "r");
+		if (fp != NULL)
 		{
-			WriteLog("Error encountered on accept() call, %d\n", errno);
-			if( ++ercount > 10 )
-			{
-				// stop trying
-				return;
-			}
+			content += "<p>Log:</p>";
+			tail(fp, content, 20);
+			fclose(fp);
 		}
 		else
 		{
-			errcount = 0;
-			// find out who connected:
-			inet_ntop(client_addr.ss_family, get_in_addr((struct sockaddr*)&client_addr), s, sizeof(s));
-			WriteLog( "Request for info made from %s ...", s);
-			// read in the http request data:
-			if( read(listenfd, requestBuff, 4096) > 0 )
-			{
-				// parse it:
-				map<string, string> m;
-
-				istringstream req(requestBuff);
-				string header, url;
-				string::size_type index;
-
-				// first line should be something like GET /info HTTP/1.1
-				getline(req, url);
-				index = url.find(' ', 0)+1;
-				url = url.substr(index, url.find(' ', index)-index);
-
-				// followed by : separated list of headers:
-				while(getline(req, header) && header != "\r")
-				{
-					index = header.find(':', 0 );
-					if( index != string::npos)
-					{
-						m.insert(make_pair(
-							boost::algorithm::trim_copy(header.substr(0, index)), 
-							boost::algorithm::trim_copy(header.substr(index + 1))
-						));
-					}
-				}
-			}
-
-			ticks = time(0);
-			tm = *gmtime(&ticks);
-
-			sprintf(content, "<!DOCTYPE html\">");
-			strcat(content, "<html><head><title>Test Page</title></head><body>");
-			strcat(content, "<h1>Url: ");
-			strcat(content, url);
-			strcat(content, "</h1>");
-			char tempbuf[2048];
-			MyMessageMap->DumpAll(tempbuf, 2048);
-			strcat(content, tempbuf);
-			strcat(content, "</body></html>");
-
-			snprintf(sendBuff, sizeof(sendBuff), "HTTP/1.1 200 OK\r\n");
-			write(connfd, sendBuff, strlen(sendBuff)); 
-			snprintf(sendBuff, sizeof(sendBuff), "Server: pibrain\r\n");
-			write(connfd, sendBuff, strlen(sendBuff));
-			snprintf(sendBuff, sizeof(sendBuff), "Host: pibrain\r\n");
-			write(connfd, sendBuff, strlen(sendBuff));
-			strftime(sendBuff, sizeof(sendBuff), "Date: %a, %d %b %Y %H:%M:%S %Z\r\n", &tm);
-			write(connfd, sendBuff, strlen(sendBuff));
-			snprintf(sendBuff, sizeof(sendBuff), "Connection: Closed\r\n");
-			write(connfd, sendBuff, strlen(sendBuff));
-			snprintf(sendBuff, sizeof(sendBuff), "Content-Length: %d\r\n", strlen(content));
-			write(connfd, sendBuff, strlen(sendBuff));
-			snprintf(sendBuff, sizeof(sendBuff), "Content-Type: text/html; charset=UTF-8\r\n\r\n");
-			write(connfd, sendBuff, strlen(sendBuff));
-
-		    write(connfd, content, strlen(content));
-
-			//cerr << "Content sent...";
-			shutdown(connfd, SHUT_WR);
-       	 	close(connfd);
-			//cerr << "Closed\r\n";
+			content += "Couldn't read log file";
 		}
-		sleep(1);
 	}
+	content += "</body></html>";
+	
+	return content;
+}
+
+
+#define SIZE 100
+
+// function to read last n lines from the file
+// at any point without reading the entire file
+void tail(FILE* in, string _to, int n)
+{
+    int count = 0;  // To count '\n' characters
+
+    // unsigned long long pos (stores upto 2^64 – 1
+    // chars) assuming that long long int takes 8 
+    // bytes
+    unsigned long long pos;
+    char str[2*SIZE];
+
+    // Go to End of file
+    if (fseek(in, 0, SEEK_END))
+        perror("fseek() failed");
+    else
+    {
+        // pos will contain no. of chars in
+        // input file.
+        pos = ftell(in);
+
+        // search for '\n' characters
+        while (pos)
+        {
+            // Move 'pos' away from end of file.
+            if (!fseek(in, --pos, SEEK_SET))
+            {
+                if (fgetc(in) == '\n')
+
+                    // stop reading when n newlines
+                    // is found
+                    if (count++ == n)
+                        break;
+            }
+            else
+                perror("fseek() failed");
+        }
+
+        // print last n lines
+        stringstream ss;
+        ss << "Printing last " << n << " lines -\n";
+        _to += ss.str();
+        while (fgets(str, sizeof(str), in))
+        {
+            _to += str;
+		}
+    }
+    _to += "\n\n";
 }

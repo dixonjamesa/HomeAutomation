@@ -10,24 +10,29 @@
 # use make all
 #
 
+VPATH = . ../HAController
 CC=g++
 # The recommended compiler flags for the Raspberry Pi
 #CFLAGS = -Wall -std=c++11 -pthread
 CFLAGS = -Wall -std=c++11 -pthread -Ofast 
 #-mfpu=vfp -pthread -mfloat-abi=hard -march=armv6zk -mtune=arm1176jzf-s
 
+ODIR = obj
+INC = -Iinc
+
 # define all programs
 BIN = TestServer
-SRC = $(wildcard *.cpp)
-OBJ = $(SRC:%.cpp=%.o)
+SRC = $(wildcard *.cpp) SimpleServer.cpp
+IOBJ = $(notdir $(SRC))
+OBJ = $(IOBJ:%.cpp=$(ODIR)/%.o)
 
 all: $(BIN)
 
 $(BIN): $(OBJ)
-	$(CC) $(CFLAGS) TestServer.o -o TestServer
+	$(CC) $(CFLAGS) $(OBJ) -o TestServer
 
-%.o: %.cpp
-	$(CC) $(CFLAGS) -c $(SRC) 
+$(ODIR)/%.o: %.cpp
+	$(CC) $(CFLAGS) -c $(INC) -o $@ $<
 
 clean:
 	rm -f $(OBJ)
