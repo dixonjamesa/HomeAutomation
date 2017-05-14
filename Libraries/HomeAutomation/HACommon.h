@@ -10,7 +10,23 @@
 #define MSG_AWAKE 7 // sensor node started
 #define MSG_IDENTIFY 8 // you sent an AWAKEACK, but I don't recognise you. I've added you, but you really need to re-subscribe now or nothing will happen
 #define MSG_STATUS 9 // send a status message to the server (which will be logged)
+#define MSG_RESEND 10 // re-send all your channel REGISTER and SUBSCRIBE settings please
 
+// Typical message order:
+// Client sends AWAKE
+//	- Server registers new node, deleting any previous information if there is a duplicate
+// Client sends REGISTER and/or SUBSCRIBE to inform server what it is going to pass or what it wants
+// Client sends DATA messages when REGISTERed values change
+// Server sends DATA messages when SUBSCRIBEd values change
+// At regular (30s?) intervals, client sends AWAKEACK
+//	- If server doesn't recognise client (eg it's rebooted), it sends IDENTIFY
+//	- Client should then re-send an AWAKE and all its REGISTER and SUBSCRIBE
+// If server receives a DATA message for an unREGISTERed channel, it will send back an UNKNOWN
+// Every so often (60secs) server sends a PING to all known clients. If the message isn't delivered 10 times, the client is forgotten
+// Client sends STATUS to server to record its current status
+
+
+// different data types within a MSG_DATA payload:
 #define DT_BOOL 1
 #define DT_FLOAT 2
 #define DT_BYTE 3

@@ -19,7 +19,7 @@ const byte outputLEDGPin = 5;
 const byte outputLEDBPin = 6;
 
 // Constants that identify this node and the node to send data to
-const uint16_t this_node = 022;
+const uint16_t this_node = 0131;
 const uint16_t control_node = 0;
 
 // Switch states
@@ -27,6 +27,7 @@ bool switchIsOn=false; // whether the output switch is on
 int switchOnTimer = 0; // timer for how long the switch remains on
 const int switchOnTime = 600; // how long to leave it on
 bool switchDummy = false; // use this for turning the switch off after a delay (using a force send)
+long lockoutTimer = 0; // timer to avoid door opening as network connections start up
 
 byte backDoorSensorState=0; // back door state
 byte rollerDoorSensorState=0; // roller door state
@@ -37,8 +38,8 @@ int indicatorFadeValue = 0; // current fade value
 int indicatorFadeMax = 255; // max fade value
 
 // Radio with CE & CSN pins
-RF24 radio(RFCE, RFCSN);
-RF24Network RFNetwork(radio);
+RF24 RFRadio(RFCE, RFCSN);
+RF24Network RFNetwork(RFRadio);
 
 // Time between checks (in ms)
 const unsigned long loopTime = 100;
@@ -46,7 +47,7 @@ const unsigned long loopTime = 100;
 class MyHANet: public HomeAutoNetwork
 {
   public:
-  MyHANet(RF24Network *_net):HomeAutoNetwork(_net) {}
+  MyHANet():HomeAutoNetwork(&RFRadio, &RFNetwork) {}
   virtual void OnMessage(uint16_t from_node, message_data *message)
   {
     Serial.print(F("Data received from node "));
@@ -57,15 +58,14 @@ class MyHANet: public HomeAutoNetwork
     Serial.print(F(" - "));
     switch( message->code )
     {
-      case 202: // reset
-        Serial.println(F("Reset"));
-        OnResetNeeded();
-      break;
       case 201:
         switchIsOn = (bool)message->data[0];
         Serial.print(F("Switch to "));
         Serial.println(switchIsOn);
-        digitalWrite(switchPin, switchIsOn);
+        if( lockoutTimer > (long)1000*60 )
+        { // Cannot automatically open the door for the first minute...
+          digitalWrite(switchPin, switchIsOn);
+        }
       break;
       default:
         Serial.println(F(" - unexpected code"));
@@ -73,20 +73,25 @@ class MyHANet: public HomeAutoNetwork
     }
   }
 
-  void OnAwake(bool success)
+  virtual void OnAwake(bool _ack)
   {
-    if( success)
+    // good practice to send subscriptions again just in case there's been a problem
+    if( !_ack )
     {
       strcpy(StatusMessage,"OK.");
       ForceSendRegisteredChannel(101);
+      SetStatus((char *)"Initialising");
     }
+    InitialiseMessaging(_ack);
   }
+  
   // when we receive a MSG_UNKNOWN code (with data payload)
   virtual void OnUnknown(uint16_t from_node, message_data *_message) 
   {
     // let's at least report the problem...
     Serial.print(F("Message returned UNKNOWN: "));
     Serial.println(_message->code);
+    sprintf(StatusMessage , "Received unknown code %d", _message->code);
     if( allInitialised )
     {
       // assume it's because of lost signal, so just reset ourselves...
@@ -97,36 +102,50 @@ class MyHANet: public HomeAutoNetwork
   // Controller has told us to reset
   virtual void OnResetNeeded()
   {
+   #if DOSERIAL
     // all we need to do is re-register the channels...
     Serial.println(F("RESET"));
-    InitialiseMessaging(true);
+   #endif
+    strcpy(StatusMessage, "Resetting");
+    SetStatus((char *)"Resetting");
+    if(allInitialised)
+    {
+      InitialiseMessaging(true);
+    }
   }
-  
+    // Controller has told us to resend
+  virtual void OnResendNeeded()
+  {
+   #if DOSERIAL
+    // all we need to do is re-register the channels...
+    Serial.println(F("RESEND"));
+   #endif
+    strcpy(StatusMessage, "Resending");
+    SetStatus((char *)"Resending");
+    if(allInitialised)
+    {
+      InitialiseMessaging(true);
+    }
+  }
+
+  // set up all the channels we care about...
+  // _restart = true if this isn't the first intialise...
   void InitialiseMessaging(bool _restart=false)
   {
-    char channel[64];
-    
-    sprintf(channel, "n%o/status", this_node);
-    RegisterChannel( DT_TEXT, 101, StatusMessage, channel, _restart); // common status reporting method
+    RegisterChannel( DT_TEXT, 101, StatusMessage, "garage/status", _restart); // common status reporting method
     strcpy(StatusMessage, "Initialising...");
     
-    sprintf(channel, "n%o/reset", this_node);
-    SubscribeChannel( DT_TEXT, 202, channel); // we will be told to reset here
-
-    sprintf(channel, "n%o/switch", this_node);
-    SubscribeChannel( DT_BOOL, 201, channel); // door switch state from elsewhere in the network
-    RegisterChannel( DT_BOOL, 104, &switchDummy, 0, channel, _restart); // allow us to turn the switch off again
+    SubscribeChannel( DT_BOOL, 201, "garage/switch"); // door switch state from elsewhere in the network
+    RegisterChannel( DT_BOOL, 104, &switchDummy, 0, "garage/switch", _restart); // allow us to turn the switch off again
     
-    sprintf(channel, "n%o/bdoor", this_node);
-    RegisterChannel( DT_BYTE, 102, &backDoorSensorState, 0, channel, _restart); 
+    RegisterChannel( DT_BYTE, 102, &backDoorSensorState, 0, "garage/bdoor", _restart); 
     
-    sprintf(channel, "n%o/gdoor", this_node);
-    RegisterChannel( DT_BYTE, 103, &rollerDoorSensorState, 0, channel, _restart); 
+    RegisterChannel( DT_BYTE, 103, &rollerDoorSensorState, 0, "garage/gdoor", _restart); 
     
     allInitialised = false;
   }
 
-} HANetwork(&RFNetwork);
+} HANetwork;//&Radio, &RFNetwork);
 
 
 void setup(void)
@@ -138,14 +157,8 @@ void setup(void)
 #endif
   // Initialize all radio related modules
   SPI.begin();
-  radio.begin();
   delay(5);
-  RFNetwork.begin(120, this_node);
-  radio.setPALevel(RF24_PA_MAX);
-  radio.setRetries(8,11);
-  RFNetwork.txTimeout = 137;
-  
-  HANetwork.Begin(this_node);
+  HANetwork.Begin(this_node);  
 
   pinMode(outputLEDRPin, OUTPUT);
   pinMode(outputLEDGPin, OUTPUT);
@@ -155,17 +168,11 @@ void setup(void)
   pinMode(SensorBackDoor, INPUT);
   digitalWrite(switchPin,false);
   SetIndicator(255,255,255); // white
-
-  delay(50);
-
-  HANetwork.InitialiseMessaging();
-  Serial.println(F("Initialised"));
 }
 
 void loop() 
 {
   // Update network data
-  RFNetwork.update();
   HANetwork.Update(loopTime);
 
   if( !allInitialised )
@@ -174,6 +181,7 @@ void loop()
     {
       allInitialised = true;
       strcpy(StatusMessage, "OK.");
+      HANetwork.SetStatus((char *)"OK.");
     }
     else
     {
@@ -185,7 +193,7 @@ void loop()
     backDoorSensorState = ProcessInputValue(analogRead(SensorBackDoor));
     rollerDoorSensorState = ProcessInputValue(analogRead(SensorRollerDoor));
     if( backDoorSensorState == 2 || rollerDoorSensorState == 2 )
-    {
+    { // tamper
       SetIndicator(255,0,0); // red
       UpdateIndicator(loopTime); // flash faster
       if( backDoorSensorState == 2 )
@@ -199,12 +207,12 @@ void loop()
     }
     else if( rollerDoorSensorState == 0 )
     {
-      SetIndicator(100,255,0); // orange
+      SetIndicator(180,255,0); // red/orange
       strcpy( StatusMessage,"Garage Door Open");
     }
     else if( backDoorSensorState == 0 )
     {
-      SetIndicator(10,120,255); // cyan
+      SetIndicator(0,60,255); // cyan
       strcpy( StatusMessage,"Back Door Open");
     }
     else
@@ -218,9 +226,10 @@ void loop()
       switchOnTimer += loopTime;
       Serial.println(switchOnTimer);
       indicatorFadeValue = indicatorFadeMax;
-      SetIndicator(0,100,255); // blue
+      SetIndicator(0,0,255); // blue
       if( switchOnTimer > switchOnTime )
-      {      
+      {
+        switchDummy = false;
         HANetwork.ForceSendRegisteredChannel(104);
         switchOnTimer = 0;
         switchIsOn = false;
@@ -229,6 +238,9 @@ void loop()
       }
     }
   }
+
+  // ensure the door doesn't get opened in the first minute:
+  lockoutTimer += loopTime;
   delay(loopTime);
   UpdateIndicator(loopTime);
 }

@@ -10,9 +10,6 @@ bool allInitialised = false;
 
 // Node 2 is a simple HUB node - nothing complicated, just used as a network message relay
 
-const byte RFCE = 9; // transmitter
-const byte RFCSN = 10; // transmitter
-
 // Constants that identify this node and the node to send data to
 const uint16_t this_node = 002;
 const uint16_t control_node = 0;
@@ -20,10 +17,16 @@ const uint16_t control_node = 0;
 // Time between checks (in ms)
 const unsigned long loopTime = 100;
 
+// set up the network:
+const byte RFCE = 9; // transmitter
+const byte RFCSN = 10; // transmitter
+RF24 Radio(RFCE, RFCSN);
+RF24Network Network(Radio);
+
 class MyHANet: public HomeAutoNetwork
 {
   public:
-  MyHANet(byte CE, byte CSN):HomeAutoNetwork(CE,CSN) {}
+  MyHANet(RF24 *_r, RF24Network *_n):HomeAutoNetwork(_r, _n) {}
   virtual void OnMessage(uint16_t from_node, message_data *message)
   {
     switch( message->code )
@@ -41,6 +44,20 @@ class MyHANet: public HomeAutoNetwork
     }
   }
   
+  virtual void OnAwake(bool _ack)
+  {
+    // good practice to send subscriptions again just in case there's been a problem
+    if( !_ack)
+    {
+     #if DOSERIAL
+      Serial.println("Initialising");
+     #endif
+      strcpy(StatusMessage, "Initialising");
+      SetStatus((char *)"Initialising");
+    }
+    InitialiseMessaging(_ack);
+  }
+
   // when we receive a MSG_UNKNOWN code (with data payload)
   virtual void OnUnknown(uint16_t from_node, message_data *_message) 
   {
@@ -50,6 +67,11 @@ class MyHANet: public HomeAutoNetwork
     Serial.println(_message->code);
    #endif
     sprintf(StatusMessage , "Received unknown code %d", _message->code);
+    if( allInitialised )
+    {
+      // assume it's because of lost signal, so just reset ourselves...
+      InitialiseMessaging(true);
+    }
   }
 
   // Controller has told us to reset
@@ -60,27 +82,38 @@ class MyHANet: public HomeAutoNetwork
     Serial.println(F("RESET"));
    #endif
     strcpy(StatusMessage, "Resetting");
+    SetStatus((char *)"Resetting");
     if(allInitialised)
     {
       InitialiseMessaging(true);
     }
   }
-  
+  // Controller has told us to reset
+  virtual void OnResendNeeded()
+  {
+   #if DOSERIAL
+    // all we need to do is re-register the channels...
+    Serial.println(F("RESEND"));
+   #endif
+    strcpy(StatusMessage, "Resending");
+    SetStatus((char *)"Resending");
+    if(allInitialised)
+    {
+      InitialiseMessaging(true);
+    }
+  }
+
+  // set up all the channels we care about...
+  // _restart = true if this isn't the first intialise...
   void InitialiseMessaging(bool _restart=false)
   {
     char channel[64];
     sprintf(channel, "n%o/status", this_node);
     RegisterChannel( DT_TEXT, 101, StatusMessage, channel, _restart); // common status reporting method
-   #if DOSERIAL
-    Serial.println("Initialised");
-   #endif
-    //sprintf(channel, "n%o/reset", this_node);
-    //SubscribeChannel( DT_TEXT, 202, channel); // we will be told to reset here
-    strcpy(StatusMessage, "Initialising");
     allInitialised = false;
   }
 
-} HANetwork(RFCE, RFCSN);
+} HANetwork(&Radio, &Network);
 
 
 void setup(void)
@@ -91,11 +124,12 @@ void setup(void)
   Serial.println("Start");
 #endif 
   // Initialize everything:
+  //Radio.setPALevel(RF24_PA_MAX);
+  Serial.println("SPI");
   SPI.begin();
   delay(5);
-  HANetwork.Begin(120, this_node, 483);
-  delay(50);
-  HANetwork.InitialiseMessaging();
+  Serial.println("HAN");
+  HANetwork.Begin(this_node);
 }
 
 void loop() 
@@ -108,7 +142,12 @@ void loop()
     if( HANetwork.QueueEmpty() ) 
     {
       allInitialised = true;
-      strcpy(StatusMessage, "OK.");
+      strcpy(StatusMessage, "OK");
+      HANetwork.SetStatus((char *)"OK.");
+    }
+    else
+    {
+      //Serial.println("Queue still full...");
     }
   }
   // Wait a bit before we start over again

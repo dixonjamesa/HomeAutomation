@@ -17,7 +17,7 @@ TMRh20 2014
 #include <sstream>
 #include <string>
 #include <RF24/RF24.h>
-
+#include <unistd.h>
 
 using namespace std;
 //
@@ -72,6 +72,17 @@ const uint64_t addresses[2] = { 0xABCDABCD71LL, 0x544d52687CLL };
 uint8_t data[32];
 unsigned long startTime, stopTime, counter, rxTimer=0;
 
+void intHandler()
+{
+	//Read as long data is available
+	//Single interrupts may be lost if a lot of data comes in.
+	while(radio.available())
+	{
+      radio.read(&data,32);
+      counter++;
+    }
+}
+
 int main(int argc, char** argv){
 
   bool role_ping_out = 1, role_pong_back = 0;
@@ -96,6 +107,8 @@ int main(int argc, char** argv){
   char myChar = {0};
   cout << "Choose a role: Enter 0 for receiver, 1 for transmitter (CTRL+C to exit)\n>";
   getline(cin,input);
+
+  attachInterrupt(23, INT_EDGE_FALLING, intHandler); //Attach interrupt to bcm pin 23
 
   if(input.length() == 1) {
 	myChar = input[0];
@@ -123,8 +136,8 @@ int main(int argc, char** argv){
   }
 
     // forever loop
-    while (1){
-
+    while (1)
+	{
 	if (role == role_ping_out){
 		sleep(2);
 		printf("Initiating Basic Data Transfer\n\r");
@@ -162,26 +175,18 @@ int main(int argc, char** argv){
 	}
 
 
-if(role == role_pong_back){
-     while(radio.available()){
-      radio.read(&data,32);
-      counter++;
-     }
-   if(millis() - rxTimer > 1000){
-     rxTimer = millis();
-     printf("Rate: ");
-     float numBytes = counter*32;
-     printf("%.2f KB/s \n\r",numBytes/1000);
-     printf("Payload Count: %lu \n\r", counter);
-     counter = 0;
-   }
-  }
-
+	if(role == role_pong_back)
+	{
+        if(millis() - rxTimer > 1000){
+		  rxTimer = millis();
+		  printf("Rate: ");
+		  float numBytes = counter*32;
+		  printf("%.2f KB/s \n\r",numBytes/1000);
+		  printf("Payload Count: %lu \n\r", counter);
+  		  counter = 0;
+        }
+        delay(2);
+	}
+	
 } // loop
 } // main
-
-
-
-
-
-

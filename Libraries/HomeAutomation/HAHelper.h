@@ -1,10 +1,8 @@
-//#define WAKE_RETRY_TIMEOUT 5000
-//#define SUBS_RETRY_TIMEOUT 600
+#define WAKE_RETRY_TIMEOUT 3000
 #define STATUS_CHECK_TIMEOUT (30*1000)
 
 // Commmon status buffer
 char StatusMessage[48];
-
 
 struct HANWatcher
 {
@@ -42,10 +40,10 @@ class HomeAutoNetwork
 		#define MAXQUEUESIZE 8
 		MessageQ messageQueue[MAXQUEUESIZE];
 	public:
-		HomeAutoNetwork(byte CE, byte CSN)
+		HomeAutoNetwork(RF24* _radio, RF24Network * _net)
 		{
-			Radio = new RF24(CE, CSN);
-			TheNetwork = new RF24Network(*Radio);
+			Radio = _radio;
+			TheNetwork = _net;
 		}
 		
 		bool QueueEmpty()
@@ -54,15 +52,19 @@ class HomeAutoNetwork
 		}
 		
 		// Must be called first to kick things off
-		void Begin(uint8_t channel, const uint16_t node_id, int _timeout=483)
+		void Begin(const uint16_t node_id, int _timeout=0)
 		{
+			Serial.println("Radio up...");
 			Radio->begin();
-			TheNetwork->begin(channel, node_id);
-			Radio->setRetries(8,11);
-			Radio->setPALevel(RF24_PA_MAX);
+			TheNetwork->begin(120, node_id); // channel must match that of the HomeController running on the Pi
+			Radio->setRetries(8,15);
+			//Radio->setPALevel(RF24_PA_MAX);
 			TheNetwork->txTimeout = _timeout;
 			NodeID = node_id; // store the node id
+			Serial.println("OK...");
+
 			TestAwake(0); // send an AWAKE
+			//Radio->printDetails(); - doesn't seem to work for some reason :(
 		}
 		
 		// This is the main method that should be called regularly
@@ -82,7 +84,7 @@ class HomeAutoNetwork
 			}
 			else
 			{
-				Serial.println(F("Waiting on queue..."));
+				//Serial.println(F("Waiting on queue..."));
 			}
 		}
 		
@@ -92,11 +94,15 @@ class HomeAutoNetwork
 		// override this to respond to MSG_UNKNOWN:
 		virtual void OnUnknown(uint16_t from_node, message_data *_message) {}
 		
-		// override this to get a callback when AWAKE succeeds, and then the status of subsequent AWAKEACK messages
-		virtual void OnAwake(bool _success) {}
+		// override this to get a callback when AWAKE succeeds, and then subsequent AWAKEACK messages
+		virtual void OnAwake(bool _ack) {}
+		// override this to know when AWAKEACK fails
+		virtual void OnAwakeFail() {}
 		
 		// override this to respond to MSG_IDENTIFY:
 		virtual void OnResetNeeded() {}
+		// override this to respond to MSG_RESEND:
+		virtual void OnResendNeeded() {}
 
 		// Register that we want to transmit data on a channel
 		// will be sent when abs(*value) changes by > delta
@@ -185,6 +191,12 @@ class HomeAutoNetwork
 		}			
 		
 		// check an individual watcher, and send data if necessary		
+		// general flow is:
+		//	 get the new value from the watch pointer (so the type is correct)
+		//   get the previous (cached value) from the last sent message in the watcher
+		//	 compare to see if anything needs transmitting
+		//	 update the message with the new value and try to transmit
+		//	 revert the message to the old value on fail
 		bool CheckWatcher(HANWatcher *item, bool _forceSend)
 		{
 			switch( item->msg.type )
@@ -200,7 +212,11 @@ class HomeAutoNetwork
 					Serial.print(F("Float value: "));
 					Serial.print(nowvalue);
 					memcpy(item->msg.data, &nowvalue, 4); // copy the new value into the message data
-					sendDataMessage(item, &cachedvalue, 4);
+					if( !sendDataMessage(item, 4) )
+					{
+						// failed, so revert to cached value:
+						memcpy(item->msg.data, &cachedvalue, 4); // copy the old value into the message data
+					}
 				}
 			}
 			break;
@@ -217,7 +233,11 @@ class HomeAutoNetwork
 					Serial.print(F("Byte/bool value: "));
 					Serial.print(nowvalue);
 					memcpy(item->msg.data, &nowvalue, 1); // copy the new value into the message data
-					sendDataMessage(item, &cachedvalue, 1);
+					if( !sendDataMessage(item, 1) )
+					{
+						// failed, so revert to cached value:
+						memcpy(item->msg.data, &cachedvalue, 1); // copy the old value into the message data
+					}
 				}
 			}
 			break;
@@ -232,7 +252,11 @@ class HomeAutoNetwork
 					Serial.print(F("Int16 value: "));
 					Serial.print(nowvalue);
 					memcpy(item->msg.data, &nowvalue, 2); // copy the new value into the message data
-					sendDataMessage(item, &cachedvalue, 2);
+					if( !sendDataMessage(item, 2) )
+					{
+						// failed, so revert to cached value:
+						memcpy(item->msg.data, &cachedvalue, 2); // copy the old value into the message data
+					}
 				}
 			}
 			break;
@@ -247,20 +271,30 @@ class HomeAutoNetwork
 					Serial.print(F("Int32 value: "));
 					Serial.print(nowvalue);
 					memcpy(item->msg.data, &nowvalue, 4); // copy the new value into the message data
-					sendDataMessage(item, &cachedvalue, 4);
+					if( !sendDataMessage(item, 4) )
+					{
+						// failed, so revert to cached value:
+						memcpy(item->msg.data, &cachedvalue, 4); // copy the old value into the message data
+					}
 				}
 			}
 			break;
 			case DT_TEXT:
 			{
-				char *cachedvalue = item->msg.data;
+				char cachedvalue[MAXDATALENGTH];
 				char *nowvalue = (char *)item->watch;
+
+				strcpy(cachedvalue, item->msg.data);
 				if( _forceSend || strcmp(cachedvalue, nowvalue) )
 				{
 					Serial.print(F("Text value: "));
 					Serial.print(nowvalue);
 					strcpy(item->msg.data, nowvalue); // copy the new value into the message data
-					sendDataMessage(item, &cachedvalue, strlen(nowvalue)+1);
+					if( !sendDataMessage(item, strlen(nowvalue)+1 ) )
+					{
+						// failed, so revert to cached value:
+						strcpy(item->msg.data, cachedvalue); // copy the old value into the message data
+					}
 				}
 			}
 			break;
@@ -294,6 +328,10 @@ class HomeAutoNetwork
 					// result of a failed AWAKEACK - we need to tell the sensor to re-register its stuff
 					sendAwake(MSG_AWAKE);
 					OnResetNeeded();
+					break;
+				case MSG_RESEND:
+					TheNetwork->read(header, &message, sizeof(message));
+					OnResendNeeded();
 					break;
 				case MSG_DATA:
 					TheNetwork->read(header, &message, sizeof(message));
@@ -336,11 +374,17 @@ class HomeAutoNetwork
 		}
 
 		// Send a status message
-		int SendMessage(char *_message)
+		int SetStatus(char *_message)
 		{
+			int i;
 			RF24NetworkHeader writeHeader(0);
 			writeHeader.type = MSG_STATUS;
-			return TheNetwork->write(writeHeader, _message, strlen(_message)+1);
+			for(i=0;i<10;i++)
+			{
+				if( TheNetwork->write(writeHeader, _message, strlen(_message)+3) )
+					return true;
+			}
+			return false;
 		}
 		
 		// Send a data message
@@ -348,7 +392,7 @@ class HomeAutoNetwork
 		{
 			RF24NetworkHeader writeHeader(0);
 			writeHeader.type = MSG_DATA;
-			return TheNetwork->write(writeHeader, _message, _datasize+2);
+			return TheNetwork->write(writeHeader, _message, _datasize+2); // 2 bytes for the message_data code and type fields, plus the data itself
 		}
 		
 	private:
@@ -356,22 +400,27 @@ class HomeAutoNetwork
 		// this method is called regularly by the Update method
 		bool TestAwake(unsigned int _time)
 		{
+			// timer 
+			updateTimer += _time;
 			if( !awakeOK )
 			{
-				awakeOK = sendAwake(MSG_AWAKE);
-				if( awakeOK ) 
+				if( updateTimer > WAKE_RETRY_TIMEOUT )
 				{
-					Serial.println(F("HANetwork awake")); 
-					// let derived class know that we are now officially working:
-					OnAwake(true);
-				} else 
-				{
-					Serial.println(F("Failed to wake...")); 
+					updateTimer = 0;
+					Serial.print(F("Trying to wake..."));
+					awakeOK = sendAwake(MSG_AWAKE);
+					if( awakeOK ) 
+					{
+						Serial.println(F("OK")); 
+						// let derived class know that we are now officially working:
+						OnAwake(false);
+					} else 
+					{
+						Serial.println(F("Nope")); 
+					}
 				}
 				return awakeOK;
 			}
-			// timer 
-			updateTimer += _time;
 			if( updateTimer > STATUS_CHECK_TIMEOUT ) // timeout has passed, so let's check everything is still working:
 			{
 				Serial.print(F("Update timer now "));
@@ -393,7 +442,7 @@ class HomeAutoNetwork
 					Serial.println(F("Up check FAIL."));
 					// send this to give the derived class a chance to do something to acknowledge this 
 					// non-communicative state (like flash a red light or something)
-					OnAwake(false);
+					OnAwakeFail();
 				}
 			}
 			return true;
@@ -482,6 +531,7 @@ class HomeAutoNetwork
 			{
 				Serial.println(F("NOT QUEUED - BAAAAD!!!"));
 				sprintf(StatusMessage , "> Queue: %c chan %s", _code, _channel);
+				SetStatus((char *)"QUEUE SIZE EXCEEDED - BAAD!");
 			}
 		  }
 		  else
@@ -517,7 +567,7 @@ class HomeAutoNetwork
 		}
 		
 		// Send a MSG_DATA to the controller, of specified size, reverting to original value if not sent
-		bool sendDataMessage(HANWatcher *w, void *originalvalue, int size)
+		bool sendDataMessage(HANWatcher *w, int size)
 		{
 			Serial.print(F(" changed on code "));
 			Serial.print(w->msg.code);
@@ -525,13 +575,13 @@ class HomeAutoNetwork
 			if(SendMessage(&w->msg, size)) 
 			{
 				Serial.println(F("OK"));
+				return true;
 			}
 			else
 			{
-				// copy old value back, so we try again...
-				memcpy(w->msg.data, originalvalue, size);
 				Serial.println(F("FAIL"));
 			}
+			return false;
 		}
 		// Send an awake or awakeack message 
 		bool sendAwake(byte _code)
