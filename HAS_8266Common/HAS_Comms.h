@@ -13,12 +13,14 @@
 #include <Arduino.h>
 
 // temp static buffer for composing payloads
-extern char messageBuffer[512];
+#define MBUFSIZE 512
+extern char messageBuffer[MBUFSIZE];
 
 /*
  * Set up all the QTT communication topics
  */
 void setupMQTTMessages();
+void setupAutoDisco( bool _clear=false );
 
 /*
  * Handle all incoming traffic

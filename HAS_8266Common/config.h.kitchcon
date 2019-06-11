@@ -11,15 +11,15 @@
 #ifndef _CONFIG_H_
 #define _CONFIG_H_
 
-#define UNIT "FamilyLed2"           // [Unit] Name of the unit
+#define UNIT "KitchCon"           // [Unit] Name of the unit
 
 #define FRIENDLY1 "%s1"          // [FriendlyName1] name used by, e.g. HomeAssistant
-#define FRIENDLY2 "%s2"          // [FriendlyName2] name used by, e.g. HomeAssistant
-#define FRIENDLY3 "%s3"          // [FriendlyName3] name used by, e.g. HomeAssistant
+#define FRIENDLY2 "Kitchen Mood"          // [FriendlyName2] name used by, e.g. HomeAssistant
+#define FRIENDLY3 "Kitchen Bar"          // [FriendlyName3] name used by, e.g. HomeAssistant
 #define FRIENDLY4 "%s4"          // [FriendlyName4] name used by, e.g. HomeAssistant
-#define FRIENDLY5 "%s5"          // [FriendlyName5] name used by, e.g. HomeAssistant
+#define FRIENDLY5 "Kitchen Pillar"          // [FriendlyName5] name used by, e.g. HomeAssistant
 #define FRIENDLY6 "%s6"          // [FriendlyName6] name used by, e.g. HomeAssistant
-#define FRIENDLY7 "%s7"          // [FriendlyName7] name used by, e.g. HomeAssistant
+#define FRIENDLY7 "Kitchen Sink"          // [FriendlyName7] name used by, e.g. HomeAssistant
 #define FRIENDLY8 "%s8"          // [FriendlyName8] name used by, e.g. HomeAssistant
 
 #define STA_SSID "PrettyFly24"    // [Ssid] Default wifi SSID
@@ -40,9 +40,9 @@
 #define MQTT_PORT     1883        // [MqttPort] MQTT port
 #define MQTT_USER     ""          // [MqttUser] MQTT user
 #define MQTT_PASS     ""          // [MqttPass] MQTT password
-#define MQTT_CLIENT "%sClient"    // [MqttClient] MQTT client name
+#define MQTT_CLIENT "%sClient1"    // [MqttClient] MQTT client name
 
-#define MQTT_TOPIC "familyled2"        // [Topic] (unique) MQTT device topic
+#define MQTT_TOPIC "kitchcon"        // [Topic] (unique) MQTT device topic
 #define MQTT_GRPTOPIC "allthings" // [GroupTopic] MQTT group topic
 
 // similar mqtt system to the tasmota sonoff system, to keep things consistent:
@@ -52,6 +52,8 @@
 
 // switch behaviour
 // types are: 0 disabled, 1 toggle on press; 2 toggle on release; 3 pushbutton (push on/release off); 4 pin1 on, pin2 off
+#define SWITCHTYPES "0 Dis, 1 Press, 2 Release, 3 PB, 4 Dual" // used in web output
+
 #define SWTYPE_NONE 0
 #define SWTYPE_PRESS 1
 #define SWTYPE_RELEASE 2
@@ -75,11 +77,6 @@
 #define SW7_TOPIC   ""            // [Switch7Topic] additional topic to send messages on
 #define SW8_TYPE  SWTYPE_NONE     // [Switch8Type]
 #define SW8_TOPIC   ""            // [Switch8Topic] additional topic to send messages on
-
-#define ROT1_TOPIC ""             // [Rot1Topic] additional topic to send the rotary value on
-#define ROT2_TOPIC ""             // [Rot2Topic] additional topic to send the rotary value on
-#define ROT3_TOPIC ""             // [Rot3Topic] additional topic to send the rotary value on
-#define ROT4_TOPIC ""             // [Rot4Topic] additional topic to send the rotary value on
 
 #define LED1_TOPIC ""              // [LED1Topic] topic state the LED should reflect
 #define LED2_TOPIC ""              // [LED2Topic] 
@@ -114,34 +111,30 @@
 #define SW8_PIN1  -1              // [Sw8Pin1] GPIO pin (pushbutton and on), -1 disabled
 #define SW8_PIN2  -1              // [Sw8Pin2] GPIO pin (off), -1 disabled
 
-// global status
-#define STATUS_LED  -1            // [StatusLED]
-#define RESET_PIN   SW1_PIN1      // [ResetPin]
 // outputs
 #define NUM_OUTS 8
 
-#define RGB_COUNT 30            // [RGB1Count] number of pixels
-
-#define OUTTYPE_NONE  0
+#define OUTTYPE_NONE 0
 #define OUTTYPE_ONOFF 1
-#define OUTTYPE_RGB   2       // only on output 1. Will use GPIO3 and ignore pin setting
+#define OUTTYPE_RGB 2
 
-#define OUT1_PIN    13            // [Out1Pin]
-#define OUT1_TYPE   OUTTYPE_RGB   // [Out1Type]
-#define OUT2_PIN    -1            // [Out2Pin]
-#define OUT2_TYPE   OUTTYPE_NONE  // [Out2Type]
-#define OUT3_PIN    -1            // [Out3Pin]
-#define OUT3_TYPE   OUTTYPE_NONE  // [Out3Type]
-#define OUT4_PIN    -1            // [Out4Pin]
+#define OUT1_PIN    D7            // [Out1Pin]
+#define OUT1_TYPE   OUTTYPE_NONE  // [Out1Type]
+#define OUT2_PIN    D2            // [Out2Pin]
+#define OUT2_TYPE   OUTTYPE_ONOFF // [Out2Type]
+#define OUT3_PIN    D1            // [Out3Pin]
+#define OUT3_TYPE   OUTTYPE_ONOFF // [Out3Type]
+#define OUT4_PIN    D3            // [Out4Pin]
 #define OUT4_TYPE   OUTTYPE_NONE  // [Out4Type]
-#define OUT5_PIN    -1            // [Out5Pin]
-#define OUT5_TYPE   OUTTYPE_NONE  // [Out5Type]
-#define OUT6_PIN    -1            // [Out6Pin]
+#define OUT5_PIN    D6            // [Out5Pin]
+#define OUT5_TYPE   OUTTYPE_ONOFF // [Out5Type]
+#define OUT6_PIN    D5            // [Out6Pin]
 #define OUT6_TYPE   OUTTYPE_NONE  // [Out6Type]
-#define OUT7_PIN    -1            // [Out7Pin]
-#define OUT7_TYPE   OUTTYPE_NONE  // [Out7Type]
+#define OUT7_PIN    D4            // [Out7Pin]
+#define OUT7_TYPE   OUTTYPE_ONOFF // [Out7Type]
 #define OUT8_PIN    -1            // [Out8Pin]
 #define OUT8_TYPE   OUTTYPE_NONE  // [Out8Type]
+#define STATUS_LED  16            // [StatusLED]
 #define OUT1_LED    -1            // [Out1LED]
 #define OUT2_LED    -1            // [Out2LED]
 #define OUT3_LED    -1            // [Out3LED]
@@ -150,6 +143,15 @@
 #define OUT6_LED    -1            // [Out6LED]
 #define OUT7_LED    -1            // [Out7LED]
 #define OUT8_LED    -1            // [Out8LED]
+
+#define RGB1_COUNT 0              // [RGB1Count] number of pixels
+#define RGB2_COUNT 0              // [RGB2Count] number of pixels
+#define RGB3_COUNT 0              // [RGB3Count] number of pixels
+#define RGB4_COUNT 0              // [RGB4Count] number of pixels
+#define RGB5_COUNT 0              // [RGB5Count] number of pixels
+#define RGB6_COUNT 0              // [RGB6Count] number of pixels
+#define RGB7_COUNT 0              // [RGB7Count] number of pixels
+#define RGB8_COUNT 0              // [RGB8Count] number of pixels
 
 #define INVERT_LED  0             // [InvertLED]
 //TODO !!!!!! LED_STATE 0       // [LEDState] 0 off, 1 follow output, 2 invert output

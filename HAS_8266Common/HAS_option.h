@@ -12,6 +12,7 @@
 #include <Arduino.h>
 #include "config.h"
 #include "HAS_Main.h"
+#include "HAS_Pixels.h"
 
 class Option; 
 // global options class instance:
@@ -25,115 +26,135 @@ class Option
     void Save();
 
     bool IsOption(const char *_opt);
-    String &GetOption(const char *_opt, const char *_default);
+    const char *GetOption(const char *_opt, const char *_default);
+    const char *GetOption(const char *_opt, int _default);
     bool SetOption(const char *_opt, const char *_value);
 
-    const String UID() {return String(ESP.getChipId()); }
+    uint32 UID() {return ESP.getChipId(); }
     // the options:
     //[Unit]
-    const String &Unit() { return GetOption("Unit", UNIT);}
+    const char *Unit() { return GetOption("Unit", UNIT);}
     void Unit(const char *_val) {SetOption("Unit", _val);} 
     //[FriendlyName<n>]
-    const char *FriendlyNameParsed(int _id) { static char tbuf[32];sprintf(tbuf, FriendlyName(_id).c_str(), Unit().c_str(), UID().c_str()); return tbuf;}
-    const String &FriendlyName(int _id) { return GetOption((String("FriendlyName")+_id).c_str(), friendlyDefaults[_id-1]);}
-    void FriendlyName(int _id, const char *_val) {SetOption((String("FriendlyName")+_id).c_str(), _val);} 
+    const char *FriendlyNameParsed(int _id) { static char tbuf[32];sprintf(tbuf, FriendlyName(_id), Unit(), UID()); return tbuf;}
+    const char *FriendlyName(int _id) {char tb[16]; sprintf(tb, "FriendlyName%d", _id); return GetOption(tb, friendlyDefaults[_id-1]);}
+    void FriendlyName(int _id, const char *_val) {char tb[16]; sprintf(tb, "FriendlyName%d", _id); SetOption(tb, _val);} 
     
     // [Ssid]
-    const String &WF_ssid() { return GetOption("Ssid", STA_SSID);}
+    const char *WF_ssid() { return GetOption("Ssid", STA_SSID);}
     void WF_ssid(const char *_val) {SetOption("Ssid", _val);}
     // [Password]
-    const String &WF_pass() { return GetOption("Password", STA_PASS);}
+    const char *WF_pass() { return GetOption("Password", STA_PASS);}
     void WF_pass(const char *_val) {SetOption("Password", _val);}
     // [WebName]
-    const char *WebNameParsed() { static char tbuf[32];sprintf(tbuf, WebName().c_str(), Unit().c_str(), UID().c_str()); return (tbuf);}
-    const String &WebName() { return GetOption("WebName", WEBNAME);}
+    const char *WebNameParsed() { static char tbuf[32];sprintf(tbuf, WebName(), Unit(), UID()); return (tbuf);}
+    const char *WebName() { return GetOption("WebName", WEBNAME);}
     void WebName(const char *_val) {SetOption("WebName", _val);}
     // [WebPassword]
-    const String &AP_pass() { return GetOption("WebPassword", AP_PASS);}
+    const char *AP_pass() { return GetOption("WebPassword", AP_PASS);}
     void AP_pass(const char *_val) {SetOption("WebPassword", _val);}
     // [WebServer]
-    bool APServer() { return (GetOption("WebServer", AP_SERVER==1?"1":"0")=="1");}
+    bool APServer() { return (strcmp(GetOption("WebServer", AP_SERVER==1?"1":"0"),"0"));}
     void APServer(bool _val) {SetOption("WebServer", _val?"1":"0");}
     // [MqttHost]
-    const String &MqttHost() { return GetOption("MqttHost", MQTT_HOST);}
+    const char *MqttHost() { return GetOption("MqttHost", MQTT_HOST);}
     void MqttHost(const char *_val) {SetOption("MqttHost", _val);}
     // [MqttPort]
-    const int MqttPort() { return GetOption("MqttPort", String(MQTT_PORT).c_str()).toInt();}
+    const int MqttPort() { return atoi(GetOption("MqttPort", MQTT_PORT));}
     void MqttPort(int _val) {SetOption("MqttPort", String(_val).c_str());}
     // [MqttUser]
-    const String &MqttUser() { return GetOption("MqttUser", MQTT_USER);}
+    const char *MqttUser() { return GetOption("MqttUser", MQTT_USER);}
     void MqttUser(const char *_val) {SetOption("MqttUser", _val);}
     // [MqttPass]
-    const String &MqttPass() { return GetOption("MqttPass", MQTT_PASS);}
+    const char *MqttPass() { return GetOption("MqttPass", MQTT_PASS);}
     void MqttPass(const char *_val) {SetOption("MqttPass", _val);}
     // [MqttClient]
-    const char *MqttClientParsed() { static char tbuf[32];sprintf(tbuf, MqttClient().c_str(), Unit().c_str(), UID().c_str()); return tbuf;}
-    const String &MqttClient() { return GetOption("MqttClient", MQTT_CLIENT);}
+    const char *MqttClientParsed() { static char tbuf[32];sprintf(tbuf, MqttClient(), Unit(), UID()); return tbuf;}
+    const char *MqttClient() { return GetOption("MqttClient", MQTT_CLIENT);}
     void MqttClient(const char *_val) {SetOption("MqttClient", _val);}
     // [MqttTopic]
-    const String &MqttTopic() { return GetOption("MqttTopic", MQTT_TOPIC);}
+    const char *MqttTopic() { return GetOption("MqttTopic", MQTT_TOPIC);}
     void MqttTopic(const char *_val) {SetOption("MqttTopic", _val);}
     // [MqttGroupTopic]
-    const String &MqttGroupTopic() { return GetOption("MqttGroupTopic", MQTT_GRPTOPIC);}
+    const char *MqttGroupTopic() { return GetOption("MqttGroupTopic", MQTT_GRPTOPIC);}
     void MqttGroupTopic(const char *_val) {SetOption("MqttGroupTopic", _val);}
 
     // [Prefix1]
-    const String &Prefix1() { return GetOption("Prefix1", SUB_PREFIX);}
+    const char *Prefix1() { return GetOption("Prefix1", SUB_PREFIX);}
     void Prefix1(const char *_val) {SetOption("Prefix1", _val);}
     // [Prefix2]
-    const String &Prefix2() { return GetOption("Prefix2", PUB_PREFIX);}
+    const char *Prefix2() { return GetOption("Prefix2", PUB_PREFIX);}
     void Prefix2(const char *_val) {SetOption("Prefix2", _val);}
     // [Prefix3]
-    const String &Prefix3() { return GetOption("Prefix3", INFO_PREFIX);}
+    const char *Prefix3() { return GetOption("Prefix3", INFO_PREFIX);}
     void Prefix3(const char *_val) {SetOption("Prefix3", _val);}
 
   // Switches...
-    // [Sw<n>Pin1]
-    const int SwPin1(int _id) { return GetOption((String("Sw")+_id+"Pin1").c_str(), String(swPin1Defaults[_id-1]).c_str()).toInt();}
-    void SwPin1(int _id, int _val) {SetOption((String("Sw")+_id+"Pin1").c_str(), String(_val).c_str());}
-    // [Sw<n>Pin2]
-    const int SwPin2(int _id) { return GetOption((String("Sw")+_id+"Pin2").c_str(), String(swPin2Defaults[_id-1]).c_str()).toInt();}
-    void SwPin2(int _id, int _val) {SetOption((String("Sw")+_id+"Pin2").c_str(), String(_val).c_str());}
-    // [Sw<n>Type]
-    const int SwType(int _id) { return GetOption((String("Sw")+_id+"Type").c_str(), String(swTypeDefaults[_id-1]).c_str()).toInt();}
-    void SwType(int _id, int _val) {SetOption((String("Sw")+_id+"Type").c_str(), String(_val).c_str());}
-    // [Sw<n>Type]
-    const String &SwTopic(int _id) { return GetOption((String("Sw")+_id+"Topic").c_str(), swTopicDefaults[_id-1]);}
-    void SwTopic(int _id, const char *_val) {SetOption((String("Sw")+_id+"Topic").c_str(), _val);}
+    // [Sw<1-8>Pin1]
+    const int SwPin1(int _id) { char tb[16]; sprintf(tb, "Sw%dPin1", _id); return atoi(GetOption(tb, swPin1Defaults[_id-1]));}
+    void SwPin1(int _id, int _val) { char tb[16],vb[16]; sprintf(tb, "Sw%dPin1", _id); sprintf(vb, "%d", _val); SetOption(tb, vb);}
+    // [Sw<1-8>Pin2]
+    const int SwPin2(int _id) { char tb[16]; sprintf(tb, "Sw%dPin2", _id); return atoi(GetOption(tb, swPin2Defaults[_id-1]));}
+    void SwPin2(int _id, int _val) { char tb[16],vb[16]; sprintf(tb, "Sw%dPin2", _id); sprintf(vb, "%d", _val); SetOption(tb, vb);}
+    // [Sw<1-8>Type]
+    const int SwType(int _id) { char tb[16]; sprintf(tb, "Sw%dType", _id); return atoi(GetOption(tb, swTypeDefaults[_id-1]));}
+    void SwType(int _id, int _val) { char tb[16],vb[16]; sprintf(tb, "Sw%dType", _id); sprintf(vb, "%d", _val); SetOption(tb, vb);}
+    // [Sw<1-8>Topic]
+    const char *SwTopic(int _id) { char tb[16]; sprintf(tb, "Sw%dTopic", _id); return GetOption(tb, swTopicDefaults[_id-1]);}
+    void SwTopic(int _id, const char *_val) { char tb[16]; sprintf(tb, "Sw%dTopic", _id); SetOption(tb, _val);}
 
   // Rotaries
     // [Rot<n>PinU]
-    const int RotPinU(int _id) { return GetOption((String("Rot")+_id+"PinU").c_str(), String(rotUDefaults[_id-1]).c_str()).toInt();}
-    void RotPinU(int _id, int _val) {SetOption((String("Rot")+_id+"PinU").c_str(), String(_val).c_str());}
+    const int RotPinU(int _id) { char tb[16]; sprintf(tb, "Rot%dPinU", _id); return atoi(GetOption(tb, rotUDefaults[_id-1]));}
+    void RotPinU(int _id, int _val) { char tb[16],vb[16]; sprintf(tb, "Rot%dPinU", _id); sprintf(vb, "%d", _val); SetOption(tb, vb);}
     // [Rot<n>PinD]
-    const int RotPinD(int _id) { return GetOption((String("Rot")+_id+"PinD").c_str(), String(rotDDefaults[_id-1]).c_str()).toInt();}
-    void RotPinD(int _id, int _val) {SetOption((String("Rot")+_id+"PinD").c_str(), String(_val).c_str());}
+    const int RotPinD(int _id) { char tb[16]; sprintf(tb, "Rot%dPinD", _id); return atoi(GetOption(tb, rotDDefaults[_id-1]));}
+    void RotPinD(int _id, int _val) { char tb[16],vb[16]; sprintf(tb, "Rot%dPinD", _id); sprintf(vb, "%d", _val); SetOption(tb, vb);}
+    // [Rot<1-4>Topic]
+    const char *RotTopic(int _id) { char tb[16]; sprintf(tb, "Rot%dTopic", _id); return GetOption(tb, rotTopicDefaults[_id-1]);}
+    void RotTopic(int _id, const char *_val) { char tb[16]; sprintf(tb, "Rot%dTopic", _id); SetOption(tb, _val);}
 
   
   // Outputs
     // [Out<1-8>Pin]
-    const int OutPin(int _id) { return GetOption((String("Out")+_id+"Pin").c_str(), String(outDefaults[_id-1]).c_str()).toInt();}
-    void OutPin(int _id, int _val) {SetOption((String("Out")+_id+"Pin").c_str(), String(_val).c_str());}
+    const int OutPin(int _id) { char tb[16]; sprintf(tb, "Out%dPin", _id); return atoi(GetOption(tb, outDefaults[_id-1]));}
+    void OutPin(int _id, int _val) { char tb[16],vb[16]; sprintf(tb, "Out%dPin", _id); sprintf(vb, "%d", _val); SetOption(tb, vb);}
+    // [Out<1-8>Type]
+    const int OutType(int _id) { char tb[16]; sprintf(tb, "Out%dType", _id); return atoi(GetOption(tb, outTypes[_id-1]));}
+    void OutType(int _id, int _val) { char tb[16],vb[16]; sprintf(tb, "Out%dType", _id); sprintf(vb, "%d", _val); SetOption(tb, vb);}
     // [Out[1-8]LED]
-    const int OutLED(int _id) { return GetOption((String("Out")+_id+"LED").c_str(), String(ledDefaults[_id-1]).c_str()).toInt();}
-    void OutLED(int _id, int _val) {SetOption((String("Out")+_id+"LED").c_str(), String(_val).c_str());}
+    const int OutLED(int _id) { char tb[16]; sprintf(tb, "Out%dLED", _id); return atoi(GetOption(tb, ledDefaults[_id-1]));}
+    void OutLED(int _id, int _val) { char tb[16],vb[16]; sprintf(tb, "Out%dLED", _id); sprintf(vb, "%d", _val); SetOption(tb, vb);}
+    // [LED<1-8>Topic]
+    const char *LEDTopic(int _id) { char tb[16]; sprintf(tb, "LED%dTopic", _id); return GetOption(tb, LEDTopicDefaults[_id-1]);}
+    void LEDTopic(int _id, const char *_val) { char tb[16]; sprintf(tb, "LED%dTopic", _id); SetOption(tb, _val);}
 
+    // [RGB<1-8>Count]
+    const int RGBCount() { return atoi(GetOption("RGBCount", RGB_COUNT));}
+    void RGBCount(int _val) { char vb[16]; sprintf(vb, "%d", max(0, min(MAX_LED_COUNT, _val))); SetOption("RGBCount", vb);}
+
+    // [ResetPin]
+    const int ResetPin() { return atoi(GetOption("ResetPin", RESET_PIN));}
+    void ResetPin(int _val) {char vb[16]; sprintf(vb,"%d", _val); SetOption("ResetPin", vb);}
     // [StatusLED]
-    const int StatusLED() { return GetOption("StatusLED", String(STATUS_LED).c_str()).toInt();}
-    void StatusLED(int _val) {SetOption("StatusLED", String(_val).c_str());}
+    const int StatusLED() { return atoi(GetOption("StatusLED", STATUS_LED));}
+    void StatusLED(int _val) {char vb[16]; sprintf(vb,"%d", _val); SetOption("StatusLED", vb);}
     // [InvertLED]
-    bool InvertLED() { return (GetOption("InvertLED", INVERT_LED==1?"1":"0")=="1");}
+    bool InvertLED() { return (strcmp(GetOption("InvertLED", INVERT_LED==1?"1":"0"),"0"));}
     void InvertLED(bool _val) {SetOption("InvertLED", _val?"1":"0");}
 
     private:
-    int outDefaults[NUM_OUTS];
-    int ledDefaults[NUM_OUTS];
+    int outDefaults[NUM_OUTS]; // output pins
+    int outTypes[NUM_OUTS]; // output types
+    int ledDefaults[NUM_OUTS]; // output LED pins
     int swPin1Defaults[NUM_SWITCHES];
     int swPin2Defaults[NUM_SWITCHES];
     int swTypeDefaults[NUM_SWITCHES];
     const char *swTopicDefaults[NUM_SWITCHES];
+    const char *LEDTopicDefaults[NUM_OUTS];
     int rotUDefaults[NUM_SWITCHES];
     int rotDDefaults[NUM_SWITCHES];
+    const char *rotTopicDefaults[NUM_ROTS];
     const char *friendlyDefaults[NUM_OUTS];
 };
 

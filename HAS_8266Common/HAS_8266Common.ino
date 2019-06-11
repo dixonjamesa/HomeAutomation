@@ -21,6 +21,7 @@
 
 //#include "config.h"
 #include "HAS_Main.h"
+#include "HAS_Pixels.h"
 #include "HAS_WebServer.h"
 
 #include <PubSubClient.h>
@@ -31,8 +32,8 @@
 #include "HAS_Comms.h"
 #include <list>
 
-#define min(a,b) ((a<b)?a:b)
-#define max(a,b) ((a<b)?b:a)
+#define min(a,b) (((a)<(b))?(a):(b))
+#define max(a,b) (((a)<(b))?(b):(a))
 
 // uptime:
 unsigned int UT_days = 0;
@@ -48,11 +49,22 @@ struct Rotary
   int pinD;
 };
 
-T_Switch switches[4];
+T_Switch switches[NUM_SWITCHES];
 bool outputs[NUM_OUTS];
-Rotary rotaries[4];
-
-
+int outR;
+int outG;
+int outB;
+int targetR;
+int targetG;
+int targetB;
+int bright;
+int targetBright;
+int StripLength;
+Rotary rotaries[NUM_ROTS];
+int resetTimer;
+int gMode = 0;
+int gHue = 0;
+int gSat = 0;
 
 class cbData
 {
@@ -101,16 +113,23 @@ void StartSoftAP()
 {
   if( !SAP_enabled) 
   {
-    WiFi.softAP(options.WebNameParsed(), options.AP_pass().c_str());
-    SAP_enabled = true;
-    IPAddress apip = WiFi.softAPIP();
-    Serial.print("visit: ");
-    Serial.print(apip);
-    Serial.print(" on ");
-    Serial.print(options.WebNameParsed());
-    Serial.print(" (pass ");
-    Serial.print(options.AP_pass().c_str());
-    Serial.println(") ");      
+    SAP_enabled = WiFi.softAP(options.WebNameParsed(), options.AP_pass());
+    if( SAP_enabled )
+    {
+      IPAddress apip = WiFi.softAPIP();
+      Serial.print("visit: ");
+      Serial.print(apip);
+      Serial.print(" on ");
+      Serial.print(options.WebNameParsed());
+      Serial.print(" (pass ");
+      Serial.print(options.AP_pass());
+      Serial.println(") ");
+    }      
+    else
+    {
+      Serial.println("Failed to start SoftAP");
+      ESP.restart();
+    }
   }
 }
 void StopSoftAP()
@@ -119,41 +138,50 @@ void StopSoftAP()
   {
     WiFi.softAPdisconnect(true);
     SAP_enabled = false;
+    Serial.println("Stopped SoftAP");
   }
 }
 
 void PublishLWT()
 {
   char topic[64];
-  sprintf(topic, "%s/%s/LWT", options.MqttTopic().c_str(), options.Prefix3().c_str());
+  sprintf(topic, "%s/%s/LWT", options.MqttTopic(), options.Prefix3());
   PSclient.publish(topic, "Online", true); // LWT message
 }
+
 void PublishStatus()
 {
   char topic[64];
   char tbuf[128];
-  sprintf( topic, "%s/%s/STATE", options.MqttTopic().c_str(), options.Prefix3().c_str());
+
+  //Serial.println("Publishing status");
+  sprintf( topic, "%s/%s/STATE", options.MqttTopic(), options.Prefix3());
   sprintf( messageBuffer, "{\"Uptime\":\"%d:%d:%d:%d\",", UT_days, UT_hours, UT_minutes, UT_seconds);
-  if( options.OutPin(1) != -1 ) { sprintf(tbuf, "\"POWER1\":\"%s\",", outputs[0]?"ON":"OFF"); strcat(messageBuffer, tbuf); }
-  if( options.OutPin(2) != -1 ) { sprintf(tbuf, "\"POWER2\":\"%s\",", outputs[1]?"ON":"OFF"); strcat(messageBuffer, tbuf); }
-  if( options.OutPin(3) != -1 ) { sprintf(tbuf, "\"POWER3\":\"%s\",", outputs[2]?"ON":"OFF"); strcat(messageBuffer, tbuf); }
-  if( options.OutPin(4) != -1 ) { sprintf(tbuf, "\"POWER4\":\"%s\",", outputs[3]?"ON":"OFF"); strcat(messageBuffer, tbuf); }
-  if( options.OutPin(5) != -1 ) { sprintf(tbuf, "\"POWER5\":\"%s\",", outputs[4]?"ON":"OFF"); strcat(messageBuffer, tbuf); }
-  if( options.OutPin(6) != -1 ) { sprintf(tbuf, "\"POWER6\":\"%s\",", outputs[5]?"ON":"OFF"); strcat(messageBuffer, tbuf); }
-  if( options.OutPin(7) != -1 ) { sprintf(tbuf, "\"POWER7\":\"%s\",", outputs[6]?"ON":"OFF"); strcat(messageBuffer, tbuf); }
-  if( options.OutPin(8) != -1 ) { sprintf(tbuf, "\"POWER8\":\"%s\",", outputs[7]?"ON":"OFF"); strcat(messageBuffer, tbuf); }
-  sprintf(tbuf, "\"Wifi\":{\"AP\":%d,\"SSId\":\"%s\",\"IP\":\"%s\",\"RSSI\":%d,\"APMac\":\"%s\"},\"Mqtt\":%d}", 
+  if( options.OutType(1) != OUTTYPE_NONE ) { sprintf(tbuf, "\"POWER1\":\"%s\",", outputs[0]?"ON":"OFF"); strcat(messageBuffer, tbuf); if( options.OutType(1) == OUTTYPE_RGB ) { sprintf(tbuf, "\"RGB\":\"%d,%d,%d\",", targetR, targetG,targetB); strcat(messageBuffer, tbuf);sprintf(tbuf, "\"BRIGHT\":\"%d\",", targetBright); strcat(messageBuffer, tbuf);sprintf(tbuf, "\"LENGTH\":\"%d/%d\",", StripLength, options.RGBCount()); strcat(messageBuffer, tbuf); }}
+  if( options.OutType(2) != OUTTYPE_NONE ) { sprintf(tbuf, "\"POWER2\":\"%s\",", outputs[1]?"ON":"OFF"); strcat(messageBuffer, tbuf); }
+  if( options.OutType(3) != OUTTYPE_NONE ) { sprintf(tbuf, "\"POWER3\":\"%s\",", outputs[2]?"ON":"OFF"); strcat(messageBuffer, tbuf); }
+  if( options.OutType(4) != OUTTYPE_NONE ) { sprintf(tbuf, "\"POWER4\":\"%s\",", outputs[3]?"ON":"OFF"); strcat(messageBuffer, tbuf); }
+  if( options.OutType(5) != OUTTYPE_NONE ) { sprintf(tbuf, "\"POWER5\":\"%s\",", outputs[4]?"ON":"OFF"); strcat(messageBuffer, tbuf); }
+  if( options.OutType(6) != OUTTYPE_NONE ) { sprintf(tbuf, "\"POWER6\":\"%s\",", outputs[5]?"ON":"OFF"); strcat(messageBuffer, tbuf); }
+  if( options.OutType(7) != OUTTYPE_NONE ) { sprintf(tbuf, "\"POWER7\":\"%s\",", outputs[6]?"ON":"OFF"); strcat(messageBuffer, tbuf); }
+  if( options.OutType(8) != OUTTYPE_NONE ) { sprintf(tbuf, "\"POWER8\":\"%s\",", outputs[7]?"ON":"OFF"); strcat(messageBuffer, tbuf); }
+
+sprintf(tbuf, "\"Wifi\":{\"AP\":%d,\"SSId\":\"%s\",\"IP\":\"%s\",\"RSSI\":%d,\"APMac\":\"%s\"},\"Mqtt\":%d}",
                           WiFi.status(), WiFi.SSID().c_str(), WiFi.localIP().toString().c_str(), -WiFi.RSSI(), WiFi.BSSIDstr().c_str(), PSclient.state());
   strcat(messageBuffer, tbuf);
   Serial.print(topic);
   Serial.print(" ");
-  Serial.println(messageBuffer);
+  Serial.print(messageBuffer);
   if( !PSclient.publish(topic, messageBuffer, false)) // STATE message  
   {
     // publish failed
     Serial.println("FAILED");
     // disconnect and try again (the MQtt update callback)...
     PSclient.disconnect();
+  }
+  else
+  {
+    Serial.println("... OK");
   }
 }
 
@@ -162,47 +190,21 @@ void PublishInitInfo()
   // telemetry:
   PublishLWT();
   PublishStatus();
-  PSclient.loop();
 
   // HA auto-discovery:
 #if HOMEASSISTANT_DISCOVERY
-  {
-    for (int i=1; i<=NUM_OUTS; i++)
-    {
-      String UID = options.UID() + "_LI_" + i;
-      String disco = "homeassistant/light/" + UID + "/config";
-      if( options.OutPin(i) != -1 )
-      {
-        String data = "{\"device_class\":\"light\",\"name\":\"";
-        data += options.FriendlyNameParsed(i);
-        data += "\"";
-        data += ",\"cmd_t\":\"~/cmnd/POWER" + String(i) + "\"";
-        data += ",\"stat_t\":\"~/tele/STATE\"";
-        data += ",\"val_tpl\":\"{{value_json.POWER" + String(1) + "}}\"";
-        //data += ",\"stat_t\":\"~/stat/POWER"+ String(i) + "\"";
-        data += ",\"pl_off\":\"OFF\",\"pl_on\":\"ON\",\"avty_t\":\"~/tele/LWT\",\"pl_avail\":\"Online\",\"pl_not_avail\":\"Offline\"";
-        //data += ",\"uniq_id":\"";
-        //data += UID + "\",\"device\":{\"identifiers\":[\"??????\"],\"name\":\"Bedroom Changing\",\"model\":\"ESP8266Generic\",\"sw_version\":\"VERSION\",\"manufacturer\":\"Dixon\"}";
-        data += ",\"~\":\""+options.MqttTopic()+"\"";
-        data += "}";
-        PSclient.publish(disco.c_str(), data.c_str(), true);
-      }
-      else
-      {
-        // send empty payload to remove any previously retained message
-        PSclient.publish(disco.c_str(), "", true);
-      }
-      PSclient.loop();
-    }
-  }
+  setupAutoDisco();
 #endif
 }
 
+/*
+ * Regular callback to (re)connect MQTT
+ */
 void tryConnectMQTT() 
 {
-  if( WiFi.status() == WL_CONNECTED )
-  //if( WIFI_connected )
+  if( WIFI_connected )
   {
+    ShowPSState();
     if(!PSclient.connected())
     {
       const char *clname = options.MqttClientParsed();
@@ -211,15 +213,17 @@ void tryConnectMQTT()
       Serial.println("'...");
       // Attempt to connect
       bool Cstatus;
+      PSclient.setServer(options.MqttHost(), options.MqttPort());
+      PSclient.setCallback(MQTTcallback);
       // construct the full LWT topic:
-      String LWTTop = options.MqttTopic() + "/" + options.Prefix3() + "/LWT";
-      if( options.MqttUser() == "")
+      String LWTTop = String(options.MqttTopic()) + "/" + options.Prefix3() + "/LWT";
+      if( *options.MqttUser() == 0 )
       {
         Cstatus = PSclient.connect(clname, LWTTop.c_str(), 1, true, "Offline");    
       }
       else
       {
-        Cstatus = PSclient.connect(clname, options.MqttUser().c_str(), options.MqttPass().c_str(), LWTTop.c_str(), 1, true, "Offline" );
+        Cstatus = PSclient.connect(clname, options.MqttUser(), options.MqttPass(), LWTTop.c_str(), 1, true, "Offline" );
       }
       if( Cstatus ) 
       {
@@ -233,12 +237,26 @@ void tryConnectMQTT()
       {
         Serial.print("failed, rc=");
         Serial.print(PSclient.state());
-        Serial.println(" try again in 5 seconds");
+        Serial.print(" WIFI status=");
+        Serial.print(WiFi.status());
+        // states can be found here: https://pubsubclient.knolleary.net/api.html#state
+        Serial.println(" try again in 10 seconds");
+        PSclient.disconnect();
       }
     }
   }
 }
 
+void ShowPSState()
+{
+  //if(!PSclient.connected())
+  {
+    Serial.print("MQTT state: ");
+    Serial.print(PSclient.state());
+    Serial.print(" WIFI status=");
+    Serial.println(WiFi.status());
+  }
+}
 /*
  * Disconnect the wifi, and update flag
  */
@@ -248,13 +266,82 @@ void disconnectWIFI()
   WiFi.disconnect();
 }
 
+int WIFI_fail = 0;
+
+void testWIFI()
+{
+  WIFI_fail += 2; // called every 2 seconds
+  switch(WiFi.status())
+  {
+    case WL_CONNECTED:
+    {
+      if( !WIFI_connected )
+      {
+        WIFI_status = String("Connected to ") + options.WF_ssid() + " with IP " + WiFi.localIP().toString();
+        Serial.println(WIFI_status);
+        WIFI_connected = true;
+        WIFI_fail = 0;
+        if( !MDNS.begin(options.Unit()) ){Serial.println("mDNS start error");}
+        // OTA setup:
+        setupOTA();
+        StopSoftAP(); // ensure softAP not running
+      }
+      else
+      {
+        WIFI_fail = 0;        
+      }
+      break;
+    }
+    case WL_NO_SSID_AVAIL:
+      WIFI_status = String("Cannot reach ") + options.WF_ssid();
+      Serial.println(WIFI_status);
+      WIFI_connected = false;
+      break;
+    case WL_CONNECT_FAILED:
+      WIFI_status = String("Invalid password for ") + options.WF_ssid();
+      Serial.println(WIFI_status);
+      WIFI_connected = false;
+      break;
+    case WL_CONNECTION_LOST:
+      WIFI_status = "Connection lost";
+      Serial.println(WIFI_status);
+      WIFI_connected = false;
+      break;       
+    case WL_DISCONNECTED:
+      WIFI_status = "Disconnected - not in station mode";
+      Serial.println(WIFI_status);
+      WIFI_connected = false;
+      break;       
+    default:
+      WIFI_status = "Unknown problem";
+      Serial.println(WIFI_status);
+      WIFI_connected = false;
+      break;
+  }  
+  flashWifi();
+  if( !WIFI_connected)
+  {
+    Serial.println("");
+    Serial.print("WiFi Status: ");
+    Serial.println(WiFi.status());
+    WiFi.printDiag(Serial);
+    if( WIFI_fail > 30 )
+    {
+      // wifi not able to connect for > 30 seconds
+      // switch over to softAP
+      StartSoftAP();
+    }
+  }
+}
+
 // called to try to connect to wifi
 // skips if already connected
+// might be worth looking at https://github.com/espressif/arduino-esp32/issues/512
 void tryConnectWIFI()
 {
-  String ssid = options.WF_ssid();
-  String pass = options.WF_pass();
-  if( ssid.length() != 0 && !WIFI_connected /*WiFi.status() != WL_CONNECTED*/ )
+  const char *ssid = options.WF_ssid();
+  const char *pass = options.WF_pass();
+  if( *ssid != 0 && !WIFI_connected )
   {
     Serial.print("Connecting to WIFI ");
     Serial.print(ssid);
@@ -263,57 +350,17 @@ void tryConnectWIFI()
     Serial.print("Hostname: ");
     Serial.println(options.Unit());
     //WiFi.mode(WIFI_STA); - this stops the softAP working
-    if( !WiFi.hostname(options.Unit().c_str())) Serial.println("Could not set hostname");
-    WiFi.begin(ssid.c_str(), pass.c_str());
-    if( !MDNS.begin(options.Unit().c_str()) ){Serial.println("mDNS start error");}
-    int tries = 0;
-
-    while( WiFi.status() != WL_CONNECTED )
-    {
-      digitalWrite(options.StatusLED(), tries%2);
-      delay(1000);
-      Serial.print(".");
-      if( ++tries > 20 )
-      {
-        break; // give up then
-      }
-    }
+    if( !WiFi.hostname(options.Unit())) Serial.println("Could not set hostname");
+    WiFi.begin(ssid, pass);
     
-    Serial.println("Updating status...");
-    switch(WiFi.status())
-    {
-      case WL_CONNECTED:
-      {
-        WIFI_status = "Connected to " + options.WF_ssid() + " with IP " + WiFi.localIP().toString();
-        Serial.println(WIFI_status);
-        Serial.print("Connecting to MQTT server '");
-        Serial.print(options.MqttHost().c_str());
-        Serial.println("'...");
-        PSclient.setServer(options.MqttHost().c_str(), options.MqttPort());
-        PSclient.setCallback(MQTTcallback);
-        WIFI_connected = true;
-        // OTA setup:
-        setupOTA();
-        break;
-      }
-      case WL_CONNECT_FAILED:
-        WIFI_status = "Failed to connect to " + options.WF_ssid();
-        break;
-      case WL_CONNECTION_LOST:
-      case WL_DISCONNECTED:
-        WIFI_status = "Disconnected";
-        break;       
-      default:
-        WIFI_status = "Unknown problem";
-        break;
-    }
+    Serial.println("Updating WIFI status...");
   }
   else
   {
-    if( ssid.length()==0 )
+    if( *ssid==0 )
     {
-      WIFI_status = "Not Ready";
-      Serial.println(" WIFI details not ready");
+      WIFI_status = "Not Set";
+      Serial.println(" WIFI details not set");
     }
   }
 }
@@ -379,9 +426,12 @@ void setup()
   delay(1000);
   Serial.begin(115200);
   Serial.println("Boom");
-
+  resetTimer = 0;
+  
   options.Begin();
 
+  //Serial.setDebugOutput(true);
+  
   for(int i=0 ; i < NUM_SWITCHES ; i++)
   {
     switches[i].Setup(i+1, options.SwPin1(i+1), options.SwPin2(i+1), options.SwType(i+1), options.SwTopic(i+1));  
@@ -394,17 +444,11 @@ void setup()
     rotaries[i].pinD = options.RotPinD(i+1);
   }
 
-  // switch pins type
-  for(int i=0 ; i<NUM_SWITCHES ; i++)
-  {
-    if( switches[i].pin1 != -1 ) pinMode(switches[i].pin1, INPUT_PULLUP);
-    if( switches[i].pin2 != -1 ) pinMode(switches[i].pin2, INPUT_PULLUP);
-  }
   // rotary pins type
   for(int i=0 ; i < NUM_ROTS ; i++)
   {    
-    p = options.RotPinU(i+1); if( p != -1 ) pinMode(p, INPUT_PULLUP);
-    p = options.RotPinD(i+1); if( p != -1 ) pinMode(p, INPUT_PULLUP);
+    p = options.RotPinU(i+1); if( p != -1 ) { pinMode(p, INPUT_PULLUP); Serial.print("Pullup rot pinU: ");Serial.println(p); }
+    p = options.RotPinD(i+1); if( p != -1 ) { pinMode(p, INPUT_PULLUP); Serial.print("Pullup rot pinD: ");Serial.println(p); }
   }
   //output pins type
   for(int i=0; i< NUM_OUTS; i++)
@@ -413,6 +457,7 @@ void setup()
     p = options.OutLED(i+1); if( p != -1 ) pinMode(p, OUTPUT);
   }
   if( options.StatusLED() != -1 ) pinMode(options.StatusLED(), OUTPUT);
+  if( options.ResetPin() != -1 ) pinMode(options.ResetPin(), INPUT_PULLUP);
   
   // init done
   String u;
@@ -420,23 +465,25 @@ void setup()
   Serial.print("Start unit name: ");
   Serial.println(u);
 
-#if 0
-  if( options.APServer() )
-  {
-    StartSoftAP();
-  }
-#endif
-
+  InitPixels();
+  StripLength = options.RGBCount();
+  Serial.print("RGB Count is ");
+  Serial.println(StripLength);
+  
+  targetBright = 255;
   // web server running, This will be accessible over softAP (x.x.4.1) and WiFi
   InitWebServer();
   Serial.println("HTTP server started");
   
   gTime = millis();
 
-  callbackList.push_back(new cbData(tryConnectMQTT, 0, true, 5000));
-  callbackList.push_back(new cbData(flashWifi, 0, true, 1000 ));
-  callbackList.push_back(new cbData(tryConnectWIFI, 0, true, 11000));
+  callbackList.push_back(new cbData(tryConnectMQTT, 0, true, 10000));
+  callbackList.push_back(new cbData(testWIFI, 0, true, 2000 ));
 
+  // auto-reconnect is handled by the WiFi class...
+  //callbackList.push_back(new cbData(tryConnectWIFI, 0, true, 30000));
+  tryConnectWIFI();
+  
   Serial.println("Ready");
 }
 
@@ -446,38 +493,128 @@ void flashWifi()
   int flash = 0;
   if( WiFi.status() != WL_CONNECTED )
   {
-    flash = 2;
+    if( WIFI_fail < 30 )
+    {
+      flash = 1;
+    }
+    else
+    {
+      flash = 3;
+    }
   }
-  if( !PSclient.connected() )
+  else if( !PSclient.connected() )
   {
-    flash = 3; 
+    flash = 2; 
   }
+  if( flash > 0 )
+  {
+    // start off
+    digitalWrite(options.StatusLED(), LOW); 
+    delay(80);   
+  
+    for(int i = 0 ; i < flash ; i++)
+    {
+      digitalWrite(options.StatusLED(), HIGH);
+      delay(80);
+      digitalWrite(options.StatusLED(), LOW); 
+      delay(140);   
+    }
+    digitalWrite(options.StatusLED(), state);  
+  }
+}
 
-  digitalWrite(options.StatusLED(), HIGH);    
-  for(int i = 0 ; i < flash ; i++)
+void SetStripLength(int _c)
+{
+  StripLength = max(0, min(_c, options.RGBCount()));
+  if(outputs[0] )
   {
-    digitalWrite(options.StatusLED(), LOW);
-    delay(100);
-    digitalWrite(options.StatusLED(), HIGH);    
+    SetPixels(StripLength, bright, outR, outG, outB);
   }
-    digitalWrite(options.StatusLED(), state);    
+}
+int GetStripLength()
+{
+  return StripLength;
 }
 
 bool GetOutput(int _id)
 {
-  return outputs[_id-1];
+  if( _id > 0 && _id <= NUM_OUTS )
+  {
+    return outputs[_id-1];
+  }
+  return -1;
 }
 
+int GetBrightness()
+{
+  return targetBright;  
+}
+
+void SetBrightness(int bri)
+{
+  targetBright = max(0, min(255, bri));
+}
+
+void SetHue(int hue)
+{
+  gHue = hue;
+  SetRGBfromHSV(((float)gHue)/60.0, ((float)gSat)/255.0, 1.0f);
+  // note that V = Brightness, which is calculated post RGB when the pixels themselves are set
+  // and the smooth transition is handled theough the RGB values
+}
+int GetHue()
+{
+  return gHue;  
+}
+
+void SetSaturation(int sat)
+{
+  gSat = sat;
+  SetRGBfromHSV(((float)gHue)/60.0, ((float)gSat)/255.0, 1.0f);  
+  // note that V = Brightness, which is calculated post RGB when the pixels themselves are set
+  // and the smooth transition is handled theough the RGB values
+}
+
+int GetSaturation()
+{
+  return gSat;
+}
+
+
+void GetRGB(int &r, int &g, int &b)
+{
+  r = targetR;
+  g = targetG;
+  b = targetB;
+}
+
+void SetRGB(int r, int g, int b)
+{
+  targetR = r;
+  targetG = g;
+  targetB = b;
+  SetPixels(StripLength, bright, outR, outG, outB);
+
+  float R = ((float)targetR) / 255.0;
+  float G = ((float)targetG) / 255.0;
+  float B = ((float)targetB) / 255.0;
+  float H, S, V;
+
+  // store new hue and sat values:
+  HSVFromRGB(H, S, V, R, G, B);
+  gHue = H*60;
+  gSat = min(100,max(0, S*100));
+}
 /*
  * Sets output pin state and LED, and
  * publishes <unit>/stat/POWER<n> to MQTT if changed
  */
 void SetOutput( int _id, bool _state, bool _toggle )
 {
-  int pin = -1;
-  int led = -1;
-  if( _id <= 4 )
+  if( _id > 0 && _id <= NUM_OUTS )
   {
+    int pin = -1;
+    int led = -1;
     if( _toggle ) 
     {
       outputs[_id-1] = !outputs[_id-1];
@@ -487,36 +624,201 @@ void SetOutput( int _id, bool _state, bool _toggle )
     {
       outputs[_id-1] = _state;      
     }
+    pin = options.OutPin(_id);
+    led = options.OutLED(_id);
+  
+    // set the LED state:
+    if( led != -1 )
+    {
+      Serial.print("Setting LED ");
+      Serial.print(led);
+      Serial.print(" to ");
+      Serial.println(options.InvertLED()?!_state:_state);
+      digitalWrite(led, options.InvertLED()?!_state:_state);
+    }
+  
+    // set the output state, and publish to MQTT if changed:
+    if( pin != -1 )
+    {
+      Serial.print("Setting Output ");
+      Serial.print(_id);
+      Serial.print(" to ");
+      Serial.println(_state);
+      if( options.OutType(_id) == OUTTYPE_ONOFF )
+      {
+        digitalWrite(pin, !_state); // direct hardware connection for relability. Note set low to activate
+        Serial.print("Setting Pin ");
+        Serial.print(pin);
+        Serial.print(" to ");
+        Serial.println(!_state);
+      }
+      else
+      {
+        if( _state )
+        {
+          // if it's off due to brightness or RGB values, then set to mid values:
+          if( targetBright == 0 ) targetBright = 255;
+          if( outR == 0 && outG == 0 && outB == 0 )
+          {
+            SetRGB(128, 128, 128);
+          }
+        }
+        else
+        {
+          // rgb values are updated in teh main loop()
+        }
+      }
+      // publish state message
+      String message = String(options.MqttTopic()) + "/" + options.Prefix2() + "/POWER" + _id;
+      //Serial.println(message);
+      PSclient.publish(message.c_str(), _state?"ON":"OFF", true); // retained power state
+      PublishStatus(); // also do this for the HomeAssistant update
+    }
   }
-  pin = options.OutPin(_id);
-  led = options.OutLED(_id);
+}
 
-  // set the LED state:
-  if( led != -1 )
+int GetMode() { return gMode; }
+int ChangeMode(int _m)
+{
+  // -1, just increment
+  if( _m == -1 ) gMode = (gMode+1)%MODE_MAX;
+  // otherwise set to the specific mode
+  else { gMode = _m%MODE_MAX; }
+}
+
+void HSVFromRGB( float &H, float &S, float &V, float R, float G, float B)
+{
+  float minv = min( min(R, G), B);
+  float maxv = max( max(R, G), B);
+  if( minv != maxv ) // no hue!
   {
-    digitalWrite(led, options.InvertLED()?_state:!_state);
+    //Find the minimum and maximum values of R, G and B.
+    //Depending on what RGB color channel is the max value. The three different formulas are:
+    if(R >= G && R >= B) { H = (G-B)/(maxv-minv); }
+    if(G >= R && G >= B) { H = 2.0 + (B-R)/(maxv-minv); }
+    if(B >= R && B >= G) { H = 4.0 + (R-G)/(maxv-minv); }
   }
-
-  // set the output state, and publish to MQTT if changed:
-  if( pin != -1 )
+  else
   {
-    Serial.print("Setting Output ");
-    Serial.print(_id);
-    Serial.print(" to ");
-    Serial.println(_state);
-    digitalWrite(pin, !_state); // direct hardware connection for relability. Note set low to activate
+    H = 0;
+  }  
+  V = maxv;
+  S = V==0?0:(maxv-minv)/maxv;
+}
 
-    // publish state message
-    String message = options.MqttTopic() + "/" + options.Prefix2() + "/POWER" + _id;
-    //Serial.println(message);
-    PSclient.publish(message.c_str(), _state?"ON":"OFF", false);
-    PublishStatus(); // also do this for the HomeAssistant update
+void ChangeValue(int _amount)
+{
+  switch(gMode)
+  {
+    case MODE_BRIGHTNESS:
+      SetBrightness(max(0, min(255, GetBrightness() + _amount*10)));
+      break;
+    case MODE_HUE:
+    {
+      // convert from RGB to hue, add, then back to RGB:
+      float R = ((float)targetR) / 255.0;
+      float G = ((float)targetG) / 255.0;
+      float B = ((float)targetB) / 255.0;
+      float H, S, V;
+
+      HSVFromRGB(H, S, V, R, G, B);
+      gHue = H * 60 + _amount*5;
+      if( gHue < 0 ) gHue += 360;
+      if( gHue > 360 ) gHue -= 360;
+      gSat = S*255.0
+      ;
+      // Now convert back to RGB:
+      SetRGBfromHSV(((float)gHue)/60.0, S, V);
+    }
+      break;
+    case MODE_SATURATION:
+    {
+      // convert from RGB to hue, add, then back to RGB:
+      float R = ((float)targetR) / 255.0;
+      float G = ((float)targetG) / 255.0;
+      float B = ((float)targetB) / 255.0;
+      float H, S, V;
+
+      HSVFromRGB(H, S, V, R, G, B);
+      // Now convert back to RGB:
+      gHue = H*60;
+      gSat = min(100,max(0, S*100 + _amount*5));
+      SetRGBfromHSV(H, gSat*0.01f, V);
+    }
+      break;
+    case MODE_LENGTH:
+      SetStripLength(GetStripLength() + _amount);
+      break;   
   }
+}
+
+/*
+ * Set RGB from HSV values
+ */
+void SetRGBfromHSV(float H, float S, float V)
+{
+  float C, M, X;
+  gHue = H * 60.0;
+  
+  C = V*S;
+  M = V-C;
+  X = C*(1.0-fabs(fmod(gHue/60.0,2)-1.0));
+  if( gHue >= 0 && gHue < 60 )
+  {
+     targetR = (C+M)*255;
+     targetG = (X+M)*255;
+     targetB = M*255;
+  }  
+  else if( gHue >= 60 && gHue < 120 )
+  {
+     targetR = (X+M)*255;
+     targetG = (C+M)*255;
+     targetB = (M)*255;
+  }  
+  else if( gHue >= 120 && gHue < 180 )
+  {
+     targetR = (M)*255;
+     targetG = (C+M)*255;
+     targetB = (X+M)*255;
+  }  
+  else if( gHue >= 180 && gHue < 240 )
+  {
+     targetR = (M)*255;
+     targetG = (X+M)*255;
+     targetB = (C+M)*255;
+  }  
+  else if( gHue >= 240 && gHue < 300 )
+  {
+     targetR = (X+M)*255;
+     targetG = (M)*255;
+     targetB = (C+M)*255;
+  }  
+  else if( gHue >= 300 && gHue < 360 )
+  {
+     targetR = (C+M)*255;
+     targetG = (M)*255;
+     targetB = (X+M)*255;
+  }
+  else  
+  {
+     targetR = (M)*255;
+     targetG = (M)*255;
+     targetB = (M)*255;
+  }  
+}
+
+
+void T_Switch::Setup(int _id, byte _p1,byte _p2,byte _t,const char *_top) 
+{
+  id=_id;pin1=_p1;pin2=_p2;type=_t;topic=_top;
+
+  if( pin1 != 255 ) {pinMode(pin1, INPUT_PULLUP);Serial.print("Pullup input pin: ");Serial.println(pin1);}
+  if( pin2 != 255 ) {pinMode(pin2, INPUT_PULLUP);Serial.print("Pullup input pin: ");Serial.println(pin2);}
 }
 
 String T_Switch::CmndString()
 {
-  return options.MqttTopic() + "/" + options.Prefix1() + "/switch" + id;
+  return String(options.MqttTopic()) + "/" + options.Prefix1() + "/switch" + id;
 }
 
 void T_Switch::Set( const char *_val, bool _out, bool _tog )
@@ -526,9 +828,9 @@ void T_Switch::Set( const char *_val, bool _out, bool _tog )
   PSclient.publish(t.c_str(), _val, false);
   
   // and additional topic if set:
-  if( topic != "" )
+  if( *topic != 0 )
   {
-    PSclient.publish(topic.c_str(), _val, false);        
+    PSclient.publish(topic, _val, false);        
   }
   Serial.print(t);
   Serial.print(": ");
@@ -540,15 +842,18 @@ void T_Switch::Set( const char *_val, bool _out, bool _tog )
 
 void T_Switch::Toggle()
 {
+  Serial.println("Toggle switch");
   Set("TOGGLE", false, true);
 }
 
 void T_Switch::On()
 {
+  Serial.println("On switch");
   Set("ON", true, false);
 }
 void T_Switch::Off()
 {
+  Serial.println("Off switch");
   Set("OFF", false, false);
 }
 
@@ -558,18 +863,19 @@ void T_Switch::Off()
  */
 void T_Switch::Update( )
 {
-  if( type == 1 || type == 2 || type == 3)
+  if( pin1 == -1 ) return;
+  if( type == SWTYPE_PRESS || type == SWTYPE_RELEASE || type == SWTYPE_PUSHBUTTON)
   { // pushbutton or on/off
     if( !digitalRead(pin1) )
     {
       if( !latch )
       {
         latch = true;
-        if( type == 1 )
+        if( type == SWTYPE_PRESS )
         {
           Toggle();
         }
-        if( type == 3 )
+        if( type == SWTYPE_PUSHBUTTON )
         {
           On();
         }
@@ -580,18 +886,18 @@ void T_Switch::Update( )
       if( latch )
       {
         latch = false;
-        if( type == 2 )
+        if( type == SWTYPE_RELEASE )
         {
           Toggle();
         }
-        if( type == 3 )
+        if( type == SWTYPE_PUSHBUTTON )
         {
           Off();
         }
       }
     }
   }
-  else if(type == 4)
+  else if(type == SWTYPE_DUAL)
   {
     if( !digitalRead(pin1) )
     {
@@ -626,6 +932,7 @@ void T_Switch::Update( )
   }
 }
 
+int regularUpdate = 0;
 /*
  * called once a minute
  */
@@ -642,8 +949,12 @@ void loopMinutes()
     }
   }
 
-  PublishLWT();
-  PublishStatus();
+  if( ++regularUpdate >= 5 )
+  {
+    regularUpdate = 0;
+    PublishLWT();
+    PublishStatus();
+  }
 }
 
 /*
@@ -656,18 +967,11 @@ void loopSeconds()
     UT_seconds = 0;
     loopMinutes();
   }
-  if( WiFi.status() == WL_CONNECTED )
-  {
-    StopSoftAP();
-  }
-  else
-  {
-    StartSoftAP();
-  }
 }
 
 void loop() 
 {
+  //Serial.print("Loop...");
   if( (gTime/1000) < (((int)millis())/1000) )
   { // crossed a whole second bounday
     loopSeconds();
@@ -694,19 +998,20 @@ void loop()
       //Serial.println(client.state());    
   }
 
+  //Serial.print("A.");
   ArduinoOTA.handle();
 
   // Read the rotary switches (high rate)
   bool rDir;
-  for(int i=0;i<4;i++)
+  for(int i=0;i<NUM_ROTS;i++)
   {
     rotaries[i].count = 0;
     rotaries[i].latch = false;
   }
-  
+  //Serial.print("B");  
   for(int j = 0 ; j<25 ; j++)
   {
-    for(int i=0;i<4;i++)
+    for(int i=0;i<NUM_ROTS;i++)
     {
       if( digitalRead(rotaries[i].pinU) == false )
         {
@@ -728,21 +1033,81 @@ void loop()
         }
         rotaries[i].latch = false;
       }
-      delay(1);
     }
+    //Serial.print(".");
+    #define TRANSRATE 4
+    int uprate = TRANSRATE;
+    int downrate = TRANSRATE;//*4;
+    bool change = false;
+    
+    // update RGB and brightness smoothly:
+    int d = targetR - outR;
+    d = min(uprate, max(-downrate, d));
+    if( d != 0 ) change = true;
+    outR += d;
+    d = targetG - outG;
+    d = min(uprate, max(-downrate, d));
+    if( d != 0 ) change = true;
+    outG += d;
+    d = targetB - outB;
+    d = min(uprate, max(-downrate, d));
+    if( d != 0 ) change = true;
+    outB += d;
+    d = (outputs[0]?targetBright:0) - bright;
+    d = min(uprate, max(-downrate, d));
+    if( d != 0 ) change = true;
+    bright += d;
+    if( change ) 
+    {
+      SetPixels(StripLength, bright, outR, outG, outB);
+    }
+    //Serial.print("_");
+    UpdatePixels();
+    delay(1);
   }
+  //Serial.print("C.");
   
   char data[10];
   // have the rotaries moved?
-  // what about switches...
-  for(int i=0;i<4;i++)
+  for(int i=0;i<NUM_ROTS;i++)
   {
-    switches[i].Update();
     if( 0 != rotaries[i].count )
     {
+      char topic[128];
       //Serial.println(rotaries[i].count);
       sprintf(data, "%d", rotaries[i].count);
-      PSclient.publish((options.MqttTopic()+"/"+options.Prefix1()+"/"+"ROTARY"+(i+1)).c_str(), data, false);
+      sprintf(topic, "%s/%s/ROTARY%d", options.MqttTopic(), options.Prefix1(), (i+1));
+      PSclient.publish(topic, data, false);
+      if( *options.RotTopic(i+1) != 0 )
+      {
+        // also publish additional topic:
+        PSclient.publish(options.RotTopic(i+1), data, false);        
+      }
     }
   }
+  //Serial.print("D.");
+  // what about switches...
+  for(int i=0;i<NUM_SWITCHES;i++)
+  {
+    switches[i].Update();
+  }
+  //Serial.print("E.");
+
+  if( options.ResetPin() != -1 )
+  {
+    bool pressed = !digitalRead(options.ResetPin());
+    if( pressed )
+    {
+      resetTimer += gTimestep;
+      if( resetTimer > 5000 )
+      {
+        ESP.restart();
+      }
+    }
+    else
+    {
+      resetTimer = 0;
+    }
+  }
+  //Serial.println("X.");
 }
