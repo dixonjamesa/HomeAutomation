@@ -1,10 +1,10 @@
 /*
  * HAS_option.cpp
- * 
+ *
  * (C) 2019 James Dixon
- * 
+ *
  * Persistent option handling
- * 
+ *
  */
 
 #include "HAS_option.h"
@@ -75,23 +75,23 @@ void Option::Begin()
   Serial.println("Sp begin");
   SPIFFS.begin();
 
-  if (!SPIFFS.exists("/formatComplete.txt")) 
+  if (!SPIFFS.exists("/formatComplete.txt"))
   {
     Serial.println("Please wait 30 secs for SPIFFS to be formatted");
     SPIFFS.format();
     Serial.println("Spiffs formatted");
-   
+
     File f = SPIFFS.open("/formatComplete.txt", "w");
-    if (!f) 
+    if (!f)
     {
         Serial.println("file open failed");
-    } else 
+    } else
     {
         f.println("Format Complete");
         f.close();
     }
-  } 
-  else 
+  }
+  else
   {
     Serial.println("SPIFFS is formatted. Moving along...");
   }
@@ -119,11 +119,11 @@ void Option::Begin()
     root.printTo(Serial);
     Opt *o;
     i = 0;
-    for (JsonObject::iterator it=root.begin(); it!=root.end(); ++it) 
+    for (JsonObject::iterator it=root.begin(); it!=root.end(); ++it)
     {
       o = new Opt(it->key, it->value.as<char*>());
       i++;
-    } 
+    }
     Serial.print("Loaded ");
     Serial.print(i);
     Serial.println(" options");
@@ -172,40 +172,48 @@ Option::Option()
   LEDTopicDefaults[5] = LED6_TOPIC;
   LEDTopicDefaults[6] = LED7_TOPIC;
   LEDTopicDefaults[7] = LED8_TOPIC;
-  
+
   swPin1Defaults[0] =  SW1_PIN1;
   swPin2Defaults[0] =  SW1_PIN2;
   swTypeDefaults[0] =  SW1_TYPE;
+  swDelayDefaults[0] =  500;
   swTopicDefaults[0] = SW1_TOPIC;
   swPin1Defaults[1] =  SW2_PIN1;
   swPin2Defaults[1] =  SW2_PIN2;
   swTypeDefaults[1] =  SW2_TYPE;
+  swDelayDefaults[1] =  500;
   swTopicDefaults[1] = SW2_TOPIC;
   swPin1Defaults[2] =  SW3_PIN1;
   swPin2Defaults[2] =  SW3_PIN2;
   swTypeDefaults[2] =  SW3_TYPE;
+  swDelayDefaults[2] =  500;
   swTopicDefaults[2] = SW3_TOPIC;
   swPin1Defaults[3] =  SW4_PIN1;
   swPin2Defaults[3] =  SW4_PIN2;
   swTypeDefaults[3] =  SW4_TYPE;
+  swDelayDefaults[3] =  500;
   swTopicDefaults[3] = SW4_TOPIC;
   swPin1Defaults[4] =  SW5_PIN1;
   swPin2Defaults[4] =  SW5_PIN2;
   swTypeDefaults[4] =  SW5_TYPE;
+  swDelayDefaults[4] =  500;
   swTopicDefaults[4] = SW5_TOPIC;
   swPin1Defaults[5] =  SW6_PIN1;
   swPin2Defaults[5] =  SW6_PIN2;
   swTypeDefaults[5] =  SW6_TYPE;
+  swDelayDefaults[5] =  500;
   swTopicDefaults[5] = SW6_TOPIC;
   swPin1Defaults[6] =  SW7_PIN1;
   swPin2Defaults[6] =  SW7_PIN2;
   swTypeDefaults[6] =  SW7_TYPE;
+  swDelayDefaults[6] =  500;
   swTopicDefaults[6] = SW7_TOPIC;
   swPin1Defaults[7] =  SW8_PIN1;
   swPin2Defaults[7] =  SW8_PIN2;
   swTypeDefaults[7] =  SW8_TYPE;
+  swDelayDefaults[7] =  500;
   swTopicDefaults[7] = SW8_TOPIC;
-  
+
   rotUDefaults[0] = ROT1_PINU;
   rotDDefaults[0] = ROT1_PIND;
   rotTopicDefaults[0] = ROT1_TOPIC;
@@ -240,7 +248,7 @@ void Option::Save()
   File f = SPIFFS.open("/Options.opt", "w");
   if( !f)
   {
-    Serial.println("Failed to open options.opt for writing");  
+    Serial.println("Failed to open options.opt for writing");
   }
   else
   {
@@ -258,7 +266,7 @@ void Option::Save()
       f.print("\"");
     }
     f.print("}");
-    f.close();    
+    f.close();
   }
   //Serial.println("Done.");
 }

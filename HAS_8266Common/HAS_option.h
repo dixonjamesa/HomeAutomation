@@ -1,20 +1,19 @@
 /*
  * HAS_option.h
- * 
+ *
  * (C) 2019 James Dixon
- * 
+ *
  * Persistent option handling
- * 
+ *
  */
 #ifndef _OPTION_H_
 #define _OPTION_H_
 
-#include <Arduino.h>
 #include "config.h"
 #include "HAS_Main.h"
 #include "HAS_Pixels.h"
 
-class Option; 
+class Option;
 // global options class instance:
 extern Option options;
 
@@ -34,12 +33,12 @@ class Option
     // the options:
     //[Unit]
     const char *Unit() { return GetOption("Unit", UNIT);}
-    void Unit(const char *_val) {SetOption("Unit", _val);} 
+    void Unit(const char *_val) {SetOption("Unit", _val);}
     //[FriendlyName<n>]
     const char *FriendlyNameParsed(int _id) { static char tbuf[32];sprintf(tbuf, FriendlyName(_id), Unit(), UID()); return tbuf;}
     const char *FriendlyName(int _id) {char tb[16]; sprintf(tb, "FriendlyName%d", _id); return GetOption(tb, friendlyDefaults[_id-1]);}
-    void FriendlyName(int _id, const char *_val) {char tb[16]; sprintf(tb, "FriendlyName%d", _id); SetOption(tb, _val);} 
-    
+    void FriendlyName(int _id, const char *_val) {char tb[16]; sprintf(tb, "FriendlyName%d", _id); SetOption(tb, _val);}
+
     // [Ssid]
     const char *WF_ssid() { return GetOption("Ssid", STA_SSID);}
     void WF_ssid(const char *_val) {SetOption("Ssid", _val);}
@@ -102,6 +101,9 @@ class Option
     // [Sw<1-8>Topic]
     const char *SwTopic(int _id) { char tb[16]; sprintf(tb, "Sw%dTopic", _id); return GetOption(tb, swTopicDefaults[_id-1]);}
     void SwTopic(int _id, const char *_val) { char tb[16]; sprintf(tb, "Sw%dTopic", _id); SetOption(tb, _val);}
+    // [Sw<1-8>Delay]
+    const int SwDelay(int _id) { char tb[16]; sprintf(tb, "Sw%dDelay", _id); return atoi(GetOption(tb, swDelayDefaults[_id-1]));}
+    void SwDelay(int _id, int _val) { char tb[16],vb[16]; sprintf(tb, "Sw%dDelay", _id); sprintf(vb, "%d", _val); SetOption(tb, vb);}
 
   // Rotaries
     // [Rot<n>PinU]
@@ -114,7 +116,7 @@ class Option
     const char *RotTopic(int _id) { char tb[16]; sprintf(tb, "Rot%dTopic", _id); return GetOption(tb, rotTopicDefaults[_id-1]);}
     void RotTopic(int _id, const char *_val) { char tb[16]; sprintf(tb, "Rot%dTopic", _id); SetOption(tb, _val);}
 
-  
+
   // Outputs
     // [Out<1-8>Pin]
     const int OutPin(int _id) { char tb[16]; sprintf(tb, "Out%dPin", _id); return atoi(GetOption(tb, outDefaults[_id-1]));}
@@ -143,6 +145,10 @@ class Option
     bool InvertLED() { return (strcmp(GetOption("InvertLED", INVERT_LED==1?"1":"0"),"0"));}
     void InvertLED(bool _val) {SetOption("InvertLED", _val?"1":"0");}
 
+    // [AnimSpeed]
+    const int AnimSpeed() { return atoi(GetOption("AnimSpeed", 16));}
+    void AnimSpeed(int _val) {SetOption("AnimSpeed", String(_val).c_str());}
+
     private:
     int outDefaults[NUM_OUTS]; // output pins
     int outTypes[NUM_OUTS]; // output types
@@ -150,6 +156,7 @@ class Option
     int swPin1Defaults[NUM_SWITCHES];
     int swPin2Defaults[NUM_SWITCHES];
     int swTypeDefaults[NUM_SWITCHES];
+    int swDelayDefaults[NUM_SWITCHES];
     const char *swTopicDefaults[NUM_SWITCHES];
     const char *LEDTopicDefaults[NUM_OUTS];
     int rotUDefaults[NUM_SWITCHES];
@@ -159,4 +166,4 @@ class Option
 };
 
 
-#endif _OPTION_H_
+#endif //_OPTION_H_

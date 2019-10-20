@@ -1,11 +1,11 @@
 /*
  * HAS_Pixels.cpp
- * 
+ *
  * (C) 2019 James Dixon
- * 
+ *
  * WS2812B LED support
  * Uses adafruit neopixel library
- * 
+ *
  */
 #include "HAS_Pixels.h"
 #include "HAS_option.h"
@@ -41,6 +41,24 @@ void UpdatePixels()
   }
 }
 
+void SetPixel(int _id, int bri /* 0-255 */, int r, int g, int b)
+{
+  r = r*bri/255;
+  g = g*bri/255;
+  b = b*bri/255;
+  strip.SetPixelColor(_id, RgbColor(r,g,b));
+}
+void FadePixels(int _amount)
+{
+  RgbColor rgb;
+  for(int loc = 0 ; loc < options.RGBCount() ; loc++)
+  {
+    rgb = strip.GetPixelColor(loc);
+    rgb.Darken(_amount);
+    strip.SetPixelColor(loc, rgb);
+  }
+}
+
 // _id starts at 1
 void SetPixels( int _count, int bri, int r, int g, int b)
 {
@@ -55,7 +73,7 @@ void SetPixels( int _count, int bri, int r, int g, int b)
     Serial.print("% of ");
     Serial.print(r);
     Serial.print(",");
-    Serial.print(g);  
+    Serial.print(g);
     Serial.print(",");
     Serial.print(b);
     Serial.println(".");

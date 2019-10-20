@@ -1,15 +1,18 @@
 /*
  * HAS_Comms.cpp
- * 
+ *
  * (C) 2019 James Dixon
- * 
+ *
  * MQTT Pub/Sub functionality
  * Handles all the MQTT comms to the network
- * 
+ *
  */
+#include <Arduino.h>
 #include "HAS_Comms.h"
 #include "HAS_option.h"
 #include "HAS_Main.h"
+#include "HAS_Animation.h"
+
 
 char messageBuffer[MBUFSIZE];
 
@@ -57,7 +60,7 @@ void HandleONOFFTOGGLE( char* payload, int i )
 // callback when an MQTT message is received
 // for all topics we've subscribed to
 void MQTTcallback(char* _topic, byte* _payload, unsigned int _length)
-{                                                                   
+{
   int i = 0;
   bool match = false;
   // tae a copy of the topic (don't want to be fiddling inside PubSubClient's buffer really)
@@ -69,17 +72,17 @@ void MQTTcallback(char* _topic, byte* _payload, unsigned int _length)
   char payload[255];
   strncpy(payload, (char *)_payload, min((int)_length, 255));
   payload[_length] = 0;
-  
+
   Serial.print("MQTT in: '");
   Serial.print(messtype);
   Serial.println("'");
 
   // uppercase so it's all case insensitive
-  for (i = 0; i < strlen(messtype); i++) 
+  for (i = 0; i < strlen(messtype); i++)
   {
       messtype[i] = toupper(messtype[i]);
   }
-  for (i = 0; i < _length; i++) 
+  for (i = 0; i < _length; i++)
   {
       payload[i] = toupper(payload[i]);
   }
@@ -94,7 +97,7 @@ void MQTTcallback(char* _topic, byte* _payload, unsigned int _length)
       char fnp[64];
       strcpy(fnp, options.LEDTopic(i));
       // uppercase so it's all case insensitive
-      for (int j = 0; j < strlen(fnp); j++) 
+      for (int j = 0; j < strlen(fnp); j++)
       {
           fnp[j] = toupper(fnp[j]);
       }
@@ -108,7 +111,7 @@ void MQTTcallback(char* _topic, byte* _payload, unsigned int _length)
         Serial.println(i);
         if( _length > 0 )
         {
-          HandleONOFFTOGGLE(payload, i); 
+          HandleONOFFTOGGLE(payload, i);
         }
         // nothing more to do
         return;
@@ -121,31 +124,31 @@ void MQTTcallback(char* _topic, byte* _payload, unsigned int _length)
     while( *messtype != 0 && *messtype != '/' ) {messtype++;originaltopic++;}
     if( *messtype == 0 ) return;
     messtype++;originaltopic++;
-      
+
     // only interested in commands, so
     // see if it's a "cmnd" message:
     if( strncmp (messtype, "CMND", 4 ) ) return;
     // advance to the good bit
     messtype += 5; originaltopic += 5;
-    
+
     Serial.print("Message arrived [");
     Serial.print(topic);
     Serial.print("] ");
     Serial.println();
 
 #if false // removed - friendlyname can contain spaces
-  
+
     // see if the command matches the 'friendlyname':
     for(int i=1 ; i<= NUM_OUTS ; i++)
     {
       char fnp[64];
       strcpy(fnp, options.FriendlyNameParsed(i));
         // uppercase so it's all case insensitive
-        for (int j = 0; j < strlen(fnp); j++) 
+        for (int j = 0; j < strlen(fnp); j++)
         {
             fnp[j] = toupper(fnp[j]);
         }
-  
+
       if( !strcmp(messtype, fnp) )
       { // yep, we match one of the 'friendlyname's
         match = true; // flag that we've matched
@@ -161,12 +164,12 @@ void MQTTcallback(char* _topic, byte* _payload, unsigned int _length)
   // if we've not matched a command yet, keep trying:
   if( !match )
   {
-    if( !strncmp(messtype, "STATE", 5) && strlen(messtype) == 5 || 
+    if( !strncmp(messtype, "STATE", 5) && strlen(messtype) == 5 ||
         !strncmp(messtype, "STATUS", 6) && strlen(messtype) == 6) // STATE / STATUS
     {
       PublishStatus();
       return;
-    }    
+    }
     else
     if( !strncmp(messtype, "SWITCH", 6) && strlen(messtype) == 7 ) // SWITCHn
     {
@@ -177,8 +180,8 @@ void MQTTcallback(char* _topic, byte* _payload, unsigned int _length)
       // just carry on...
       return;
     }
-    else 
-    if( !strncmp(messtype, "POWER", 5) && strlen(messtype) == 6 ) // POWERn 
+    else
+    if( !strncmp(messtype, "POWER", 5) && strlen(messtype) == 6 ) // POWERn
     {
       //is a power command
         Serial.print("Power: ");
@@ -205,10 +208,11 @@ void MQTTcallback(char* _topic, byte* _payload, unsigned int _length)
     else if( !strncmp(messtype, "MODE", 4) && strlen(messtype) == 4) // MODE
     {
       // mode command
-      Serial.println("Mode: ");
+      Serial.print("Mode: ");
+      Serial.println(payload);
       if( _length > 0 )
       {
-        ChangeMode(atoi(payload));        
+        ChangeMode(atoi(payload));
       }
       sprintf(contents, "{\"MODE\":\"%d\"}", GetMode());
     }
@@ -216,7 +220,8 @@ void MQTTcallback(char* _topic, byte* _payload, unsigned int _length)
     {
       char mstr[15];
       // mode command
-      Serial.println("Mode: ");
+      Serial.print("Mode: ");
+      Serial.println(payload);
       ChangeMode();
       switch(GetMode())
       {
@@ -234,18 +239,19 @@ void MQTTcallback(char* _topic, byte* _payload, unsigned int _length)
           break;
         default:
           sprintf(mstr, "Undefined" );
-          break;        
+          break;
       }
       sprintf(contents, "{\"MODE\":\"%d (%s)\"}", GetMode(), mstr);
     }
     else if( !strncmp(messtype, "CHANGE", 6) && strlen(messtype) == 6) // CHANGE
     {
       // change command
-      Serial.println("Change: ");
+      Serial.print("Change: ");
+      Serial.println(payload);
       if( _length > 0 )
       {
         int r,g,b;
-        ChangeValue(atoi(payload));        
+        ChangeValue(atoi(payload));
         // TODO: Return the value of the thing wot changed
         switch( GetMode( ) )
         {
@@ -272,10 +278,11 @@ void MQTTcallback(char* _topic, byte* _payload, unsigned int _length)
     else if( !strncmp(messtype, "HUE", 3) && strlen(messtype) == 3) // HUE
     {
       // hue command
-      Serial.println("Hue: ");
+      Serial.print("Hue: ");
+      Serial.println(payload);
       if( _length > 0 )
       {
-        SetHue(atoi(payload));        
+        SetHue(atoi(payload));
       }
       sprintf(contents, "{\"HUE\":\"%d\"}", GetHue());
     }
@@ -292,10 +299,11 @@ void MQTTcallback(char* _topic, byte* _payload, unsigned int _length)
     else if( !strncmp(messtype, "BRIGHT", 6) && strlen(messtype) == 6) // BRIGHT
     {
       // bright command
-      Serial.println("Bright: ");
+      Serial.print("Bright: ");
+      Serial.println(payload);
       if( _length > 0 )
       {
-        SetBrightness(atoi(payload));        
+        SetBrightness(atoi(payload));
       }
       sprintf(contents, "{\"BRIGHT\":\"%d\"}", GetBrightness());
     }
@@ -315,7 +323,7 @@ void MQTTcallback(char* _topic, byte* _payload, unsigned int _length)
       Serial.println("Saturation: ");
       if( _length > 0 )
       {
-        SetSaturation(atoi(payload));        
+        SetSaturation(atoi(payload));
       }
       sprintf(contents, "{\"SATURATION\":\"%d\"}", GetSaturation());
     }
@@ -349,6 +357,14 @@ void MQTTcallback(char* _topic, byte* _payload, unsigned int _length)
       }
       sprintf(contents, "{\"STRIPLEN\":\"%d\"}", GetStripLength());
     }
+    else if( !strncmp(messtype, "ANIMATION", 9) && strlen(messtype) == 9) // ANIMATION
+    {
+      if( _length != 0 )
+      {
+        SetAnimation(atoi(payload));
+      }
+      sprintf(contents, "{\"ANIMATION\":\"%d\"}", GetAnimation());
+    }
     else if( !strncmp(messtype, "RGB", 3) && strlen(messtype) == 3) // RGB
     {
         int r,g,b,ptr1 = 0, ptr2 = 0;
@@ -381,11 +397,11 @@ void MQTTcallback(char* _topic, byte* _payload, unsigned int _length)
         Serial.println("Recognised");
         if( _length != 0 )
         {
-          options.SetOption(originaltopic, payload);  
+          options.SetOption(originaltopic, payload);
           Serial.print("Saved option ");
           Serial.print(originaltopic);
           Serial.print(" with value ");
-          Serial.println(payload);        
+          Serial.println(payload);
         }
         sprintf(contents, "{\"%s\":\"%s\"}", originaltopic, options.GetOption(originaltopic,""));
       }
@@ -447,16 +463,23 @@ void setupAutoDisco( bool _clear )
       data += options.Prefix3();
       data += "/LWT\",\"pl_avail\":\"Online\",\"pl_not_avail\":\"Offline\"";
       data += ",\"~\":\"";
-      data += 
+      data +=
       options.MqttTopic();
       data += "\"";
       data += "}";
-      PSclient.publish(disco.c_str(), data.c_str(), true);
+      if( !PSclient.publish(disco.c_str(), data.c_str(), true) )
+      {
+        Serial.println(data.c_str());
+        Serial.println("FAIL.");
+      }
     }
     else
     {
       // send empty payload to remove any previously retained message
-      PSclient.publish(disco.c_str(), "", true);
+      if(!PSclient.publish(disco.c_str(), "", true))
+      {
+        Serial.println("FAIL.");
+      }
     }
     PSclient.loop();
   }

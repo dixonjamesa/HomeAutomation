@@ -1,16 +1,14 @@
 /*
  * HAS_Comms.h
- * 
+ *
  * (C) 2019 James Dixon
- * 
+ *
  * MQTT Pub/Sub functionality
  * Handles all the MQTT comms to the network
- * 
+ *
  */
 #ifndef _COMMS_H_
 #define _COMMS_H_
-
-#include <Arduino.h>
 
 // temp static buffer for composing payloads
 #define MBUFSIZE 512

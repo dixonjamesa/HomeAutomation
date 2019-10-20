@@ -4,6 +4,7 @@
 #include "HAS_option.h"
 #include "HAS_Main.h"
 #include "HAS_Comms.h"
+#include "HAS_Animation.h"
 #include <ESP8266WebServer.h>
 
 void response( const char *_title, String &_content );
@@ -23,18 +24,16 @@ const String HtmlStyles = "<style>div,fieldset,input,select{padding:5px;font-siz
   ".bred:hover{background-color:#931f1f;}"
   ".bgrn{background-color:#47c266;}"
   ".bgrn:hover{background-color:#5aaf6f;}"
-  ".bnot{background-color:#888888;}"  
+  ".bnot{background-color:#888888;}"
   "a{text-decoration:none;}"
   ".p{float:left;text-align:left;}"
   ".q{float:right;text-align:right;}</style>";
 const String HtmlHtmlClose = "</html>";
 const String HtmlTitle = "<h1>Miniserve Acess Point</h1><br/>\n";
-const String HtmlLedStateLow = "<big>LED is now <b>ON</b></big><br/>\n";
-const String HtmlLedStateHigh = "<big>LED is now <b>OFF</b></big><br/>\n";
 const String HtmlScan = "<a href=\"./wifi?scan=1\"><button>Scan</button></a><br/>";
 const String HtmlMenu = "<div style=\"display:inline-block;min-width:340px;\">";
 const String HtmlMenuEnd = "</div>";
-const String HtmlFooter = "<div style=\"text-align:right;font-size:11px;\"><hr><span style=\"color:#aaa;\">v0.1.6 (c) 2019, James Dixon</span></div>";
+const String HtmlFooter = "<div style=\"text-align:right;font-size:11px;\"><hr><span style=\"color:#aaa;\">v0.1.7 (c) 2019, James Dixon</span></div>";
 /*
  * Put the module name as a title
  */
@@ -63,7 +62,7 @@ String HtmlParamBoxStart( const char *_title, const char *_action )
 
 /*
  * Add a parameter
- * 
+ *
  */
 String HtmlParamParam( const char *_title, const char *_subtitle, const char *_value, const char *_id, const char *_name, const char *_pass)
 {
@@ -87,7 +86,7 @@ String HtmlParamParam( const char *_title, const char *_subtitle, const char *_v
   {
     result += "type=\"password\" placeholder=\"";
     result += _pass;
-    result += "\" ";  
+    result += "\" ";
   }
   result += "><br>";
   return result;
@@ -121,7 +120,7 @@ String HTMLOutTypeList(int _sel, bool _addRGB)
 {
   String ret = "<option value=\"0\"";
   if( _sel == 0 ) ret += " selected ";
-  ret += ">Disabled</option>";
+  ret += ">N/a</option>";
   ret += "<option value=\"1\"";
   if( _sel == 1 ) ret += " selected ";
   ret += ">On/Off</option>";
@@ -140,20 +139,20 @@ String HTMLOutTypeList(int _sel, bool _addRGB)
 String HTMLSwTypeList(int _sel )
 {
   String ret = "<option value=\"0\"";
-  if( _sel == 0 ) ret += " selected ";
-  ret += ">Disabled</option>";
+  if( _sel == 0 ) ret += " selected";
+  ret += ">N/a</option>";
   ret += "<option value=\"1\"";
-  if( _sel == 1 ) ret += " selected ";
-  ret += ">Push Toggle</option>";
+  if( _sel == 1 ) ret += " selected";
+  ret += ">Press</option>";
   ret += "<option value=\"2\"";
-  if( _sel == 2 ) ret += " selected ";
-  ret += ">Release Toggle</option>";
+  if( _sel == 2 ) ret += " selected";
+  ret += ">Release</option>";
   ret += "<option value=\"3\"";
-  if( _sel == 3 ) ret += " selected ";
-  ret += ">Push Button</option>";
+  if( _sel == 3 ) ret += " selected";
+  ret += ">Pushbutton</option>";
   ret += "<option value=\"4\"";
-  if( _sel == 4 ) ret += " selected ";
-  ret += ">Dual Pin</option>";
+  if( _sel == 4 ) ret += " selected";
+  ret += ">Dual</option>";
   return ret;
 }
 
@@ -221,7 +220,7 @@ const String AddSlider(const char *_name, const char *_path, int _max, int _val)
   ret += _name;
   ret += "</button><br>";
 
-  ret += "</form>";  
+  ret += "</form>";
 
   return ret;
 }
@@ -263,7 +262,7 @@ void handleReboot()
 void handlePageArgs( bool _restart )
 {
   bool changed = false; // monitor if any option has changed
-  
+
   if(TheServer.args() > 0 )
   {
     // args have come back, so let's apply them...
@@ -286,7 +285,7 @@ void handlePageArgs( bool _restart )
       // restart the unit:
       handleReboot();
     }
-  }  
+  }
 }
 
 /*
@@ -325,7 +324,7 @@ String HtmlSwitch( const char *_name, const char *_message, bool _outEnabled, in
     inputs += "\" onchange=\"document.getElementById('tform').submit();\">";
     inputs += "</div>";
   }
-  content += AddButton(_name, "", "style='margin:2px;'", _type==0?"button bnot":"", inputs.c_str()); 
+  content += AddButton(_name, "", "style='margin:2px;'", _type==0?"button bnot":"", inputs.c_str());
 
   return content;
 }
@@ -339,10 +338,10 @@ String HtmlRotary( const char *_name, bool _disabled)
   String dat1 = String("<input type='hidden' name='") + _name + "' value='-1'>";
   String dat2 = String("<input type='hidden' name='") + _name + "' value='1'>";
   String content = "<div style='padding:0;'><table width='100%' style='margin:0px;padding:0;border:0;'><tr><td>";
-  content += AddButton("<", "", "style='margin:2px;'", _disabled?"button bnot":"", dat1.c_str()); 
+  content += AddButton("<", "", "style='margin:2px;'", _disabled?"button bnot":"", dat1.c_str());
   content += "</td><td>";
-  content += AddButton(">", "", "style='margin:2px;'", _disabled?"button bnot":"", dat2.c_str()); 
-  content += "</td></tr></table></div>";  
+  content += AddButton(">", "", "style='margin:2px;'", _disabled?"button bnot":"", dat2.c_str());
+  content += "</td></tr></table></div>";
   return content;
 }
 
@@ -361,18 +360,19 @@ void WebSwitch(int id)
     case SWTYPE_PUSHBUTTON:
       switches[id].On();
       switches[id].Off();
-      break;            
+      break;
     case SWTYPE_DUAL:
+    case SWTYPE_DELAY:
       switches[id].On();
-      break;            
-  }  
+      break;
+  }
 }
-void handleRoot() 
+void handleRoot()
 {
   Serial.println("Serving /");
   String content = HtmlModule();
   content += HtmlMenu;
-  
+
   if(TheServer.args() > 0 )
   {
     char topic[128];
@@ -477,17 +477,17 @@ void handleSwitches()
   String content = HtmlModule();
 
   handlePageArgs( true );
-  
+
   content += HtmlMenu;
 
-  content += HtmlParamBoxStart("Switch Params", "./sw");
+  content += HtmlParamBoxStart("Switches", "./sw");
 
   content += ParamSmTableStart;
   for( int i=0 ; i < NUM_SWITCHES ; i++ )
   {
     char n1buf[16], n2buf[16], n3buf[16], n4buf[16];
-    sprintf(n1buf,"Switch%d Type", i+1);
-    sprintf(n2buf,"Switch%d Topic", i+1);
+    sprintf(n1buf,"S%d Type", i+1);
+    sprintf(n2buf,"S%d Topic", i+1);
     sprintf(n3buf,"Sw%dType", i+1);
     sprintf(n4buf,"Sw%dTopic", i+1);
     content += HtmlParamOutTypeList(n1buf, "", n3buf, HTMLSwTypeList(options.SwType(i+1)));
@@ -499,8 +499,8 @@ void handleSwitches()
   content += "<br>";
   content += AddButton("Configuration", "/config");
   content += HtmlMenuEnd;
-
-  response("Switches", content);    
+  Serial.println(content);
+  response("Switches", content);
 }
 
 void handleRotaries()
@@ -509,7 +509,7 @@ void handleRotaries()
   String content = HtmlModule();
 
   handlePageArgs( true );
-  
+
   content += HtmlMenu;
 
   content += HtmlParamBoxStart("Rotary Params", "./rot");
@@ -518,8 +518,8 @@ void handleRotaries()
   for( int i=0 ; i < NUM_ROTS ; i++ )
   {
     char n1buf[16], n2buf[16], n3buf[16], n4buf[16];
-    //sprintf(n1buf,"Switch%d Type", i+1);
-    sprintf(n2buf,"Rotary%d Topic", i+1);
+    //sprintf(n1buf,"Sw%d Type", i+1);
+    sprintf(n2buf,"Rot%d Topic", i+1);
     //sprintf(n3buf,"Sw%dType", i+1);
     sprintf(n4buf,"Rot%dTopic", i+1);
     //content += HtmlParamOutTypeList(n1buf, "", n3buf, HTMLSwTypeList(options.SwType(i+1)));
@@ -532,7 +532,7 @@ void handleRotaries()
   content += AddButton("Configuration", "/config");
   content += HtmlMenuEnd;
 
-  response("Switches", content);    
+  response("Switches", content);
 }
 
 void handleLEDs()
@@ -542,7 +542,7 @@ void handleLEDs()
   String content = HtmlModule();
 
   handlePageArgs( true );
-  
+
   content += HtmlMenu;
 
   content += HtmlParamBoxStart("LED Params", "./led");
@@ -560,7 +560,7 @@ void handleLEDs()
     content += HtmlParamParamSm(n2buf, options.LEDTopic(i+1), "", n4buf);
   }
   sprintf(tbuf, "%d", options.RGBCount()); content += HtmlParamParamSm("RGB LED Count", tbuf, "", "RGBCount");
-  
+
   content += ParamSmTableEnd;
   content += HtmlSaveButton;
   content += HtmlParamBoxEnd;
@@ -568,7 +568,7 @@ void handleLEDs()
   content += AddButton("Configuration", "/config");
   content += HtmlMenuEnd;
 
-  response("LEDs", content);    
+  response("LEDs", content);
 }
 
 void handleModule()
@@ -578,7 +578,7 @@ void handleModule()
   String content = HtmlModule();
 
   handlePageArgs( true );
-  
+
   content += HtmlMenu;
 
   content += HtmlParamBoxStart("Module Params", "./module");
@@ -603,7 +603,7 @@ void handleModule()
   content += AddButton("Configuration", "/config");
   content += HtmlMenuEnd;
 
-  response("Module", content);  
+  response("Module", content);
 }
 
 void handleHW()
@@ -613,29 +613,29 @@ void handleHW()
   String content = HtmlModule();
 
   handlePageArgs( true );
-  
+
   content += HtmlMenu;
 
-  content += HtmlParamBoxStart("Hardware Params", "./hw");
+  content += HtmlParamBoxStart("Hardware", "./hw");
   content += ParamSmTableStart;
   for(int i=0 ; i < NUM_SWITCHES ; i++)
   {
     char n1buf[16], n2buf[16];
-    sprintf(n1buf,"Switch %d Pin 1", i+1);
+    sprintf(n1buf,"Sw%d Pin 1", i+1);
     sprintf(n2buf,"Sw%dPin1", i+1);
     sprintf(tbuf, "%d", options.SwPin1(i+1)); content += HtmlParamParamSm(n1buf, tbuf, "", n2buf);
-    sprintf(n1buf,"Switch %d Pin 2", i+1);
+    sprintf(n1buf,"Sw%d Pin 2", i+1);
     sprintf(n2buf,"Sw%dPin2", i+1);
     sprintf(tbuf, "%d", options.SwPin2(i+1)); content += HtmlParamParamSm(n1buf, tbuf, "", n2buf);
   }
-  
+
   for(int i=0 ; i < NUM_ROTS ; i++)
   {
     char n1buf[16], n2buf[16];
-    sprintf(n1buf,"Rotary %d PinU", i+1);
+    sprintf(n1buf,"Rot%d PinU", i+1);
     sprintf(n2buf,"Rot%dPinU", i+1);
     sprintf(tbuf, "%d", options.RotPinU(i+1)); content += HtmlParamParamSm(n1buf, tbuf, "", n2buf);
-    sprintf(n1buf,"Rotary %d PinD", i+1);
+    sprintf(n1buf,"Rot%d PinD", i+1);
     sprintf(n2buf,"Rot%dPinD", i+1);
     sprintf(tbuf, "%d", options.RotPinD(i+1)); content += HtmlParamParamSm(n1buf, tbuf, "", n2buf);
   }
@@ -650,7 +650,7 @@ void handleHW()
   content += AddButton("Configuration", "/config");
   content += HtmlMenuEnd;
 
-  response("Hardware", content);  
+  response("Hardware", content);
 }
 
 void handleHW2()
@@ -660,18 +660,18 @@ void handleHW2()
   String content = HtmlModule();
 
   handlePageArgs( true );
-  
+
   content += HtmlMenu;
 
-  content += HtmlParamBoxStart("Hardware Params", "./hw");
+  content += HtmlParamBoxStart("Hardware", "./hw");
   content += ParamSmTableStart;
   for(int i=0 ; i < NUM_OUTS ; i++)
   {
     char n1buf[16], n2buf[16];
-    sprintf(n1buf,"Output %d Pin", i+1);
+    sprintf(n1buf,"Out%d Pin", i+1);
     sprintf(n2buf,"Out%dPin", i+1);
     sprintf(tbuf, "%d", options.OutPin(i+1)); content += HtmlParamParamSm(n1buf, tbuf, "", n2buf);
-    sprintf(n1buf,"Output %d LED", i+1);
+    sprintf(n1buf,"Out%d LED", i+1);
     sprintf(n2buf,"Out%dLED", i+1);
     sprintf(tbuf, "%d", options.OutLED(i+1)); content += HtmlParamParamSm(n1buf, tbuf, "", n2buf);
   }
@@ -683,7 +683,7 @@ void handleHW2()
   content += AddButton("Configuration", "/config");
   content += HtmlMenuEnd;
 
-  response("Hardware2", content);  
+  response("Hardware2", content);
 }
 
 void handleConfig()
@@ -702,7 +702,7 @@ void handleConfig()
   content += "<br>";
   content += AddButton("Main Menu", "/");
   content += HtmlMenuEnd;
-  response("Config", content);  
+  response("Config", content);
 }
 
 void handleMQTT()
@@ -712,9 +712,9 @@ void handleMQTT()
   String content = HtmlModule();
 
   handlePageArgs( true );
-  
+
   content += HtmlMenu;
- 
+
   content += HtmlParamBoxStart("Mqtt Params", "./mqtt");
   content += HtmlParamParam("Host", options.MqttHost(), options.MqttHost(), "host", "MqttHost", NULL);
   sprintf(tb, "%d", options.MqttPort());
@@ -742,14 +742,14 @@ void handleWifi()
 
   int numNetworks = 0;
 
-  // if the "scan" argument is passed, scan and show available networks 
+  // if the "scan" argument is passed, scan and show available networks
   for(int i=0 ; i < TheServer.args() ; i++)
   {
     if( TheServer.argName(i) == "scan" )
     {
       // scan for all networks, including hidden if 2nd param true
       WiFi.scanNetworks(false, false);
-      numNetworks = WiFi.scanComplete();          
+      numNetworks = WiFi.scanComplete();
     }
   }
   // pass page args back to options
@@ -760,7 +760,7 @@ void handleWifi()
   content += HtmlScan;
   content += "<p>"+WIFI_status+"</p>";
   content += HtmlMenu;
-  
+
   if( numNetworks > 0 )
   {
     for(int i=0;i<numNetworks ; i++)
@@ -775,7 +775,7 @@ void handleWifi()
       content += "</span></div>";
     }
   }
-  
+
   content += "<br>";
   content += HtmlParamBoxStart("Wifi Params", "./wifi");
   content += HtmlParamParam("SSID", WiFi.SSID().c_str(), WiFi.SSID().c_str(), "ss1", "Ssid", NULL);
@@ -789,18 +789,41 @@ void handleWifi()
   response("WiFi", content);
 }
 
+
 ///
 // HTML general response
 ///
 void response(const char *_title, String &_content)
 {
+#if true
   String htmlRes = HtmlHtml + "<title>" + options.Unit() + " - ";
   htmlRes += _title;
   htmlRes += "</title></head>" + HtmlStyles + "<body>";
   htmlRes += _content;
   htmlRes += HtmlFooter;
   htmlRes += "</body>" + HtmlHtmlClose;
-  
+  Serial.print("Serving ");
+  Serial.print(htmlRes.length());
+  Serial.print(" bytes data, content is ");
+  Serial.print(_content.length());
+#else
+  static char htmlRes[6000];
+  sprintf(htmlRes,"FUCOF");
+  /*
+  sprintf(htmlRes, "%s%s%s%s", HtmlHtml.c_str(), "<title>", options.Unit(), " - ");
+  strcat(htmlRes, _title);
+  strcat(htmlRes, "</title></head>");
+  strcat(htmlRes, HtmlStyles.c_str());
+  strcat(htmlRes, "<body>");
+  strcat(htmlRes, _content.c_str());
+  strcat(htmlRes, HtmlFooter.c_str());
+  strcat(htmlRes, "</body>");
+  strcat(htmlRes, HtmlHtmlClose.c_str());
+  Serial.print("Serving ");
+  Serial.print(strlen(htmlRes));
+  Serial.print(" bytes data, content is ");
+  Serial.print(_content.length());*/
+#endif
   TheServer.send(200, "text/html", htmlRes);
 }
 
