@@ -1,5 +1,5 @@
 /*
- * HAS_Switch.cpp
+ * HAS_Switch.h
  *
  * (C) 2019 James Dixon
  *
@@ -9,6 +9,9 @@
 
 #ifndef _SWITCH_H_
 #define _SWITCH_H_
+
+#include <Arduino.h>
+
 
 // switch needs:
 //   - pin
@@ -21,7 +24,7 @@ class T_Switch
     T_Switch(int _id=0) { id = _id;}
     void Setup(int _id, byte _p1,byte _p2,byte _t,const char *_top);
     // call regularly:
-    void Update( );
+    void Update( int _timeStep );
 
     void Set( const char *_val, bool _out, bool _tog );
     void Toggle();
@@ -39,7 +42,8 @@ class T_Switch
 
     bool latch;   // pin1 latch
     bool latch2;  // pin2 latch
-    int delay; // delay for auto off mode
+    int delayTimer; // delay for auto off mode
+    bool lastState; // last state remembeed for ON/OFF rather than TOGGLE type switch
 };
 
 #endif //_SWITCH_H_

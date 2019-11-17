@@ -40,10 +40,10 @@ class Option
     void FriendlyName(int _id, const char *_val) {char tb[16]; sprintf(tb, "FriendlyName%d", _id); SetOption(tb, _val);}
 
     // [Ssid]
-    const char *WF_ssid() { return GetOption("Ssid", STA_SSID);}
+    const char *WF_ssid() { return "PrettyFly24";}//GetOption("Ssid", STA_SSID);}
     void WF_ssid(const char *_val) {SetOption("Ssid", _val);}
     // [Password]
-    const char *WF_pass() { return GetOption("Password", STA_PASS);}
+    const char *WF_pass() { return "Dixonia123456";}//GetOption("Password", STA_PASS);}
     void WF_pass(const char *_val) {SetOption("Password", _val);}
     // [WebName]
     const char *WebNameParsed() { static char tbuf[32];sprintf(tbuf, WebName(), Unit(), UID()); return (tbuf);}
@@ -148,6 +148,27 @@ class Option
     // [AnimSpeed]
     const int AnimSpeed() { return atoi(GetOption("AnimSpeed", 16));}
     void AnimSpeed(int _val) {SetOption("AnimSpeed", String(_val).c_str());}
+
+    // [AnalogTopic]
+    const char *AnalogTopic() { return GetOption("AnalogTopic", ANALOG_TOPIC);}
+    void AnalogTopic(const char *_val) { SetOption("AnalogTopic", _val);}
+    const char *AnalogTrigger() { return GetOption("AnalogTrigger", ANALOG_TRIGGER);}
+    void AnalogTrigger(const char *_val) { SetOption("AnalogTrigger", _val);}
+    // [ThresholdLow][ThresholdHigh][ThresholdMid]
+    const int ThresholdLow() { return atoi(GetOption("ThresholdLow", 100));}
+    void ThresholdLow(int _val) {SetOption("ThresholdLow", String(_val).c_str());}
+    const int ThresholdMid() { return atoi(GetOption("ThresholdMid", 900));}
+    void ThresholdMid(int _val) {SetOption("ThresholdMid", String(_val).c_str());}
+    const int ThresholdHigh() { return atoi(GetOption("ThresholdHigh", 1100));}
+    void ThresholdHigh(int _val) {SetOption("ThresholdHigh", String(_val).c_str());}
+
+    const char *UpdateServer() { return GetOption("UpdateServer", UPDATE_URL);}
+    void UpdateServer(const char *_val) { SetOption("UpdateServer", _val);}
+
+    const char *Version() { return GetOption("Version", P_FULL_VERSION);}
+    void Version(const char *_val) { SetOption("Version", _val);}
+    const char *NewVersion() { return GetOption("NewVersion", P_FULL_VERSION);}
+    void NewVersion(const char *_val) { SetOption("NewVersion", _val);}
 
     private:
     int outDefaults[NUM_OUTS]; // output pins

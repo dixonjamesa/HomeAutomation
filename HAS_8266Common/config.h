@@ -1,19 +1,22 @@
 /*
  * config.h
- * 
+ *
  * (C) 2019 James Dixon
- * 
+ *
  * General config settings for ESP8266 HA endpoint unit
  * each PARAMETER default values defined here.
  * Can be changed with MQTT commands, as shown in []
- * 
+ *
  */
 #ifndef _CONFIG_H_
 #define _CONFIG_H_
 
-#define UNIT "FamilyLed2"           // [Unit] Name of the unit
+#define P_VERSION "0.3.5"
+#define P_FULL_VERSION "HAS_Local_" P_VERSION
 
-#define FRIENDLY1 "%s1"          // [FriendlyName1] name used by, e.g. HomeAssistant
+#define UNIT "TestUpl"           // [Unit] Name of the unit
+
+#define FRIENDLY1 "%s"          // [FriendlyName1] name used by, e.g. HomeAssistant
 #define FRIENDLY2 "%s2"          // [FriendlyName2] name used by, e.g. HomeAssistant
 #define FRIENDLY3 "%s3"          // [FriendlyName3] name used by, e.g. HomeAssistant
 #define FRIENDLY4 "%s4"          // [FriendlyName4] name used by, e.g. HomeAssistant
@@ -23,10 +26,11 @@
 #define FRIENDLY8 "%s8"          // [FriendlyName8] name used by, e.g. HomeAssistant
 
 #define STA_SSID "PrettyFly24"    // [Ssid] Default wifi SSID
-#define STA_PASS "Dixonia1"       // [Password] Default wifi password
+#define STA_PASS "Dixonia123456"       // [Password] Default wifi password
 
 //TODO!!!!!  #define TELE_PERIOD 5             // [TelePeriod] Time between status updates
 
+#define UPDATE_URL "http://192.168.0.99/latest.php"
 
 #define WEBNAME "%s"              // [WebName] Hostname, Web server SoftAP name and the OTA name used
 
@@ -42,7 +46,7 @@
 #define MQTT_PASS     ""          // [MqttPass] MQTT password
 #define MQTT_CLIENT "%sClient"    // [MqttClient] MQTT client name
 
-#define MQTT_TOPIC "familyled2"        // [Topic] (unique) MQTT device topic
+#define MQTT_TOPIC "testupl"        // [Topic] (unique) MQTT device topic
 #define MQTT_GRPTOPIC "allthings" // [GroupTopic] MQTT group topic
 
 // similar mqtt system to the tasmota sonoff system, to keep things consistent:
@@ -51,21 +55,23 @@
 #define INFO_PREFIX  "tele"       // [Prefix3] Publish telemetry data to
 
 // switch behaviour
-// types are: 0 disabled, 1 toggle on press; 2 toggle on release; 3 pushbutton (push on/release off); 4 pin1 on, pin2 off
+// types are: 0 disabled, 1 toggle on press; 2 toggle on release; 3 pushbutton (push on/release off); 4 pin1 on, pin2 off; 5 delayed auto off
 #define SWTYPE_NONE 0
 #define SWTYPE_PRESS 1
 #define SWTYPE_RELEASE 2
 #define SWTYPE_PUSHBUTTON 3
 #define SWTYPE_DUAL 4
+#define SWTYPE_DELAY 5
+#define SWTYPE_ONOFF 6
 
 
-#define SW1_TYPE  SWTYPE_NONE     // [Switch1Type] 
+#define SW1_TYPE  SWTYPE_NONE     // [Switch1Type]
 #define SW1_TOPIC ""              // [Switch1Topic] additional topic to send messages on
-#define SW2_TYPE  SWTYPE_NONE     // [Switch2Type] 
+#define SW2_TYPE  SWTYPE_NONE     // [Switch2Type]
 #define SW2_TOPIC ""              // [Switch2Topic] additional topic to send messages on
-#define SW3_TYPE  SWTYPE_NONE     // [Switch3Type] 
+#define SW3_TYPE  SWTYPE_NONE     // [Switch3Type]
 #define SW3_TOPIC ""              // [Switch3Topic] additional topic to send messages on
-#define SW4_TYPE  SWTYPE_NONE     // [Switch4Type] 
+#define SW4_TYPE  SWTYPE_NONE     // [Switch4Type]
 #define SW4_TOPIC ""              // [Switch4Topic] additional topic to send messages on
 #define SW5_TYPE  SWTYPE_NONE     // [Switch5Type]
 #define SW5_TOPIC   ""            // [Switch5Topic] additional topic to send messages on
@@ -82,14 +88,16 @@
 #define ROT4_TOPIC ""             // [Rot4Topic] additional topic to send the rotary value on
 
 #define LED1_TOPIC ""              // [LED1Topic] topic state the LED should reflect
-#define LED2_TOPIC ""              // [LED2Topic] 
-#define LED3_TOPIC ""              // [LED3Topic] 
-#define LED4_TOPIC ""              // [LED4Topic] 
-#define LED5_TOPIC ""              // [LED5Topic] 
-#define LED6_TOPIC ""              // [LED6Topic] 
-#define LED7_TOPIC ""              // [LED7Topic] 
-#define LED8_TOPIC ""              // [LED8Topic] 
+#define LED2_TOPIC ""              // [LED2Topic]
+#define LED3_TOPIC ""              // [LED3Topic]
+#define LED4_TOPIC ""              // [LED4Topic]
+#define LED5_TOPIC ""              // [LED5Topic]
+#define LED6_TOPIC ""              // [LED6Topic]
+#define LED7_TOPIC ""              // [LED7Topic]
+#define LED8_TOPIC ""              // [LED8Topic]
 
+#define ANALOG_TOPIC ""             // [AnalogTopic] Topic the analog value will be transmitted on
+#define ANALOG_TRIGGER ""           // [AnalogTrigger] Topic the analog trigger will be transmitted on. 0, 1, 2
 
 //////////////////////////////////////////////////////////
 // HARDWARE CONFIG
@@ -120,19 +128,21 @@
 // outputs
 #define NUM_OUTS 8
 
-#define RGB_COUNT 30            // [RGB1Count] number of pixels
+#define RGB_COUNT 300            // [RGB1Count] number of pixels
 
 #define OUTTYPE_NONE  0
 #define OUTTYPE_ONOFF 1
-#define OUTTYPE_RGB   2       // only on output 1. Will use GPIO3 and ignore pin setting
+#define OUTTYPE_RGB   2       // only on output 1. Will use GPIO3 (RX) and ignore pin setting
+#define OUTTYPE_OFFON 3
+#define OUTTYPE_ANALOG 4
 
-#define OUT1_PIN    13            // [Out1Pin]
-#define OUT1_TYPE   OUTTYPE_RGB   // [Out1Type]
-#define OUT2_PIN    -1            // [Out2Pin]
+#define OUT1_PIN    -1             // [Out1Pin]
+#define OUT1_TYPE   OUTTYPE_NONE  // [Out1Type]
+#define OUT2_PIN    -1             // [Out2Pin]
 #define OUT2_TYPE   OUTTYPE_NONE  // [Out2Type]
-#define OUT3_PIN    -1            // [Out3Pin]
+#define OUT3_PIN    -1             // [Out3Pin]
 #define OUT3_TYPE   OUTTYPE_NONE  // [Out3Type]
-#define OUT4_PIN    -1            // [Out4Pin]
+#define OUT4_PIN    -1             // [Out4Pin]
 #define OUT4_TYPE   OUTTYPE_NONE  // [Out4Type]
 #define OUT5_PIN    -1            // [Out5Pin]
 #define OUT5_TYPE   OUTTYPE_NONE  // [Out5Type]

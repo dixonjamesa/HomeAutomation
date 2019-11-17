@@ -12,8 +12,10 @@
 //#include "config.h"
 #include "HAS_Main.h"
 #include "HAS_Pixels.h"
+
 #include "HAS_WebServer.h"
 #include "HAS_Animation.h"
+#include "HAS_Update.h"
 
 #include <ESP8266mDNS.h>
 #include <WiFiUdp.h>
@@ -25,6 +27,9 @@
 #define min(a,b) (((a)<(b))?(a):(b))
 #define max(a,b) (((a)<(b))?(b):(a))
 
+// WiFi STATUS STRINGS
+const char* WiFiStat[]={"WL_IDLE_STATUS", "WL_NO_SSID_AVAIL", "WL_SCAN_COMPLETED",
+ "WL_CONNECTED", "WL_CONNECT_FAILED", "WL_CONNECTION_LOST", "WL_DISCONNECTED"};
 
 // forward declarations:
 void setupOTA();
@@ -87,7 +92,7 @@ unsigned int gTimestep;
 
 bool WIFI_connected = false;
 bool SAP_enabled = false;
-String WIFI_status="Not connected";
+char WIFI_status[128]="Not connected";
 
 WiFiClient espClient;
 PubSubClient PSclient(espClient);
@@ -95,8 +100,10 @@ Option options;
 
 void StartSoftAP()
 {
-  if( !SAP_enabled)
+  if(!SAP_enabled)
   {
+    Serial.print("Starting softAP name ");
+    Serial.println(options.WebNameParsed());
     SAP_enabled = WiFi.softAP(options.WebNameParsed(), options.AP_pass());
     if( SAP_enabled )
     {
@@ -118,7 +125,7 @@ void StartSoftAP()
 }
 void StopSoftAP()
 {
-  if(SAP_enabled)
+  //if(SAP_enabled)
   {
     WiFi.softAPdisconnect(true);
     SAP_enabled = false;
@@ -182,7 +189,6 @@ void PublishStatus()
   {
     Serial.println("OK");
   }
-  PSclient.loop();
 }
 
 void PublishInitInfo()
@@ -205,7 +211,7 @@ void ShowPSState()
     Serial.print("MQTT state: ");
     Serial.print(PSclient.state());
     Serial.print(" WIFI status=");
-    Serial.println(WiFi.status());
+    Serial.println(WiFiStat[WiFi.status()]);
   }
 }
 
@@ -250,7 +256,7 @@ void tryConnectMQTT()
         Serial.print("failed, rc=");
         Serial.print(PSclient.state());
         Serial.print(" WIFI status=");
-        Serial.print(WiFi.status());
+        Serial.print(WiFiStat[WiFi.status()]);
         // states can be found here: https://pubsubclient.knolleary.net/api.html#state
         Serial.println(" try again in 10 seconds");
         PSclient.disconnect();
@@ -279,7 +285,7 @@ void testWIFI()
     {
       if( !WIFI_connected )
       {
-        WIFI_status = String("Connected to ") + options.WF_ssid() + " with IP " + WiFi.localIP().toString();
+        sprintf( WIFI_status, "Connected to %s with IP %s", options.WF_ssid(), WiFi.localIP().toString().c_str());
         Serial.println(WIFI_status);
         WIFI_connected = true;
         WIFI_fail = 0;
@@ -287,6 +293,7 @@ void testWIFI()
         // OTA setup:
         setupOTA();
         StopSoftAP(); // ensure softAP not running
+        MDNS.addService("http", "tcp", 80);
       }
       else
       {
@@ -295,27 +302,27 @@ void testWIFI()
       break;
     }
     case WL_NO_SSID_AVAIL:
-      WIFI_status = String("Cannot reach ") + options.WF_ssid();
+      sprintf( WIFI_status, "Cannot reach %s", options.WF_ssid());
       Serial.println(WIFI_status);
       WIFI_connected = false;
       break;
     case WL_CONNECT_FAILED:
-      WIFI_status = String("Invalid password for ") + options.WF_ssid();
+      sprintf( WIFI_status, "Invalid password for %s", options.WF_ssid());
       Serial.println(WIFI_status);
       WIFI_connected = false;
       break;
     case WL_CONNECTION_LOST:
-      WIFI_status = "Connection lost";
+      sprintf( WIFI_status, "Connection lost");
       Serial.println(WIFI_status);
       WIFI_connected = false;
       break;
     case WL_DISCONNECTED:
-      WIFI_status = "Disconnected - not in station mode";
+      sprintf( WIFI_status, "Disconnected - not in station mode");
       Serial.println(WIFI_status);
       WIFI_connected = false;
       break;
     default:
-      WIFI_status = "Unknown problem";
+      sprintf( WIFI_status, "Unknown problem");
       Serial.println(WIFI_status);
       WIFI_connected = false;
       break;
@@ -323,12 +330,12 @@ void testWIFI()
   flashWifi();
   if( !WIFI_connected)
   {
-    Serial.println("");
-    Serial.print("WiFi Status: ");
-    Serial.println(WiFi.status());
-    WiFi.printDiag(Serial);
+    //Serial.print("WiFi Status: ");
+    //Serial.println(WiFiStat[WiFi.status()]);
     if( WIFI_fail > 30 )
     {
+      WiFi.printDiag(Serial);
+      WIFI_fail = 0;
       // wifi not able to connect for > 30 seconds
       // switch over to softAP
       StartSoftAP();
@@ -361,7 +368,7 @@ void tryConnectWIFI()
   {
     if( *ssid==0 )
     {
-      WIFI_status = "Not Set";
+      sprintf( WIFI_status, "Not Set");
       Serial.println(" WIFI details not set");
     }
   }
@@ -420,6 +427,15 @@ void setupOTA()
   ArduinoOTA.begin();
 }
 
+void testUpdate()
+{
+  if( WIFI_connected )
+  {
+    // test the upload serveer...
+    TestServerUpdate();
+  }
+}
+
 // standard sketch setup() function
 void setup()
 {
@@ -427,7 +443,9 @@ void setup()
 
   delay(1000);
   Serial.begin(115200);
-  Serial.println("Boom");
+  Serial.println("");
+  Serial.print("Started...V");
+  Serial.println(P_VERSION);
   resetTimer = 0;
 
   options.Begin();
@@ -481,12 +499,13 @@ void setup()
 
   callbackList.push_back(new cbData(tryConnectMQTT, 0, true, 3000));
   callbackList.push_back(new cbData(testWIFI, 0, true, 2000 ));
+  callbackList.push_back(new cbData(testUpdate, 0, true, 10000 ));
 
   // auto-reconnect is handled by the WiFi class...
   //callbackList.push_back(new cbData(tryConnectWIFI, 0, true, 30000));
   tryConnectWIFI();
 
-  Serial.println("Ready");
+  Serial.println("Setup() complete");
 }
 
 void flashWifi()
@@ -539,7 +558,7 @@ bool GetOutput(int _id)
  * Sets output pin state and LED, and
  * publishes <unit>/stat/POWER<n> to MQTT if changed
  */
-void SetOutput( int _id, bool _state, bool _toggle )
+void SetOutput( int _id, bool _state, bool _toggle, int _av )
 {
   if( _id > 0 && _id <= NUM_OUTS )
   {
@@ -574,15 +593,24 @@ void SetOutput( int _id, bool _state, bool _toggle )
       Serial.print(_id);
       Serial.print(" to ");
       Serial.println(_state);
-      if( options.OutType(_id) == OUTTYPE_ONOFF )
+      int ot = options.OutType(_id);
+      if( ot == OUTTYPE_ONOFF || ot == OUTTYPE_OFFON )
       {
-        digitalWrite(pin, !_state); // direct hardware connection for relability. Note set low to activate
+        digitalWrite(pin, ot == OUTTYPE_ONOFF?!_state:_state); // direct hardware connection for relability. Note set low to activate
         Serial.print("Setting Pin ");
         Serial.print(pin);
         Serial.print(" to ");
-        Serial.println(!_state);
+        Serial.println(ot == OUTTYPE_ONOFF?!_state:_state);
       }
-      else
+      else if( ot == OUTTYPE_ANALOG )
+      {
+        analogWrite(pin, _av);
+        Serial.print("Setting Pin ");
+        Serial.print(pin);
+        Serial.print(" to ");
+        Serial.println(_av);
+      }
+      else if( ot == OUTTYPE_RGB )
       {
         if( _id==1 && _state )
         {
@@ -688,9 +716,11 @@ void loopSeconds()
   }
 }
 
+int AnalogStatus = 0;
+
 void loop()
 {
-  //Serial.print("Loop...");
+  //Serial.println("****************** Loop... **********************");
   if( (gTime/1000) < (((int)millis())/1000) )
   { // crossed a whole second boundary
     loopSeconds();
@@ -703,6 +733,7 @@ void loop()
     (*iterator)->step(gTimestep);
   }
   UpdateWebServer();
+  TestUpdate();
   if( PSclient.connected() )
   {
     if( PSclient.loop() == false )
@@ -719,6 +750,7 @@ void loop()
 
   //Serial.print("A.");
   ArduinoOTA.handle();
+
 
   // Read the rotary switches (high rate)
   bool rDir;
@@ -788,6 +820,43 @@ void loop()
   }
   //Serial.print("E.");
 
+  if( (gTime/1000) < (((int)millis())/1000) )
+  {
+    // analog...
+    if( *options.AnalogTopic() != 0 )
+    {
+      char data[10];
+      int av = analogRead(A0);
+      sprintf(data, "%d", av);
+      PSclient.publish(options.AnalogTopic(), data, false);
+    }
+    if( *options.AnalogTrigger() != 0 )
+    {
+      // topic set, so something to do..
+      int as = AnalogStatus;
+      int av = analogRead(A0);
+
+      if( av < options.ThresholdLow() || av > options.ThresholdHigh() )
+      {
+        as = 2;
+      }
+      else if( av > options.ThresholdMid() )
+      {
+        as = 1;
+      }
+      else
+      {
+        as = 0;
+      }
+      if( as != AnalogStatus )
+      {
+        char data[10];
+        AnalogStatus = as;
+        sprintf(data, "%d", as);
+        PSclient.publish(options.AnalogTrigger(), data, false);
+      }
+    }
+  }
   if( options.ResetPin() != -1 )
   {
     bool ResetPressed = !digitalRead(options.ResetPin());

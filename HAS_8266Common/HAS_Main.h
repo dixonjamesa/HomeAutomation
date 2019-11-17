@@ -11,13 +11,11 @@
 
 #include "config.h"
 #include "HAS_Switch.h"
-// WebServer responses
-#include <Arduino.h>
 #include <PubSubClient.h>
 
 void tryConnectWIFI();
 void disconnectWIFI();
-extern String WIFI_status;
+extern char WIFI_status[];
 extern PubSubClient PSclient;
 
 void PublishStatus();
@@ -25,7 +23,7 @@ void PublishStatus();
 /*
  * Set output state
  */
-void SetOutput( int _id /* 1-n */, bool _state, bool _toggle=false );
+void SetOutput( int _id /* 1-n */, bool _state, bool _toggle=false, int _av=255 );
 bool GetOutput(int _id /* 1-n */);
 extern T_Switch switches[NUM_SWITCHES];
 

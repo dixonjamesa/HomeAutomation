@@ -9,7 +9,6 @@
  */
 #include "HAS_Pixels.h"
 #include "HAS_option.h"
-//#include "HAS_Main.h"
 
 //#include <Adafruit_NeoPixel.h>
 #include <NeoPixelBus.h>

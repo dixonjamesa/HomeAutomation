@@ -3,10 +3,9 @@
  *
  * (C) 2019 James Dixon
  *
- *
- *
  */
 #include "HAS_Switch.h"
+#include "HAS_option.h"
 
 void T_Switch::Setup(int _id, byte _p1,byte _p2,byte _t,const char *_top)
 {
@@ -30,7 +29,15 @@ void T_Switch::Set( const char *_val, bool _out, bool _tog )
   // and additional topic if set:
   if( *topic != 0 )
   {
-    PSclient.publish(topic, _val, false);
+    // topic may be multiple, separated by ;'s
+    char top[256];
+    strcpy(top, topic);
+    char *pch = strtok(top, ";");
+    while(pch != NULL)
+    {
+      PSclient.publish(pch, _val, false);
+      pch = strtok(NULL, ";");
+    }
   }
   Serial.print(t);
   Serial.print(": ");
@@ -63,7 +70,7 @@ void T_Switch::Off()
  */
 void T_Switch::Update( int _timeStep )
 {
-  if( pin1 == -1 ) return;
+  if( pin1 == 255 ) return;
   if( type == SWTYPE_PRESS || type == SWTYPE_RELEASE || type == SWTYPE_PUSHBUTTON || type == SWTYPE_DELAY)
   { // pushbutton or on/off
     if( !digitalRead(pin1) )
@@ -128,17 +135,17 @@ void T_Switch::Update( int _timeStep )
       if( latch2 )
       {
         latch2 = false;
-      } 
+      }
     }
   }
 
   if( type == SWTYPE_DELAY )
   {
-    if( delay > 0 )
-      delay -= _timeStep;
-      if( delay <= 0 )
+    if( delayTimer > 0 )
+      delayTimer -= _timeStep;
+      if( delayTimer <= 0 )
       {
-        delay = 0;
+        delayTimer = 0;
         // switch off again:
         Off();
       }

@@ -17,8 +17,8 @@ class Opt;
 
 // only ever add options to this list...
 std::list<Opt *> allOptions;
-#define MAXKEYLEN 32
-#define MAXVALUELEN 64
+#define MAXKEYLEN 24
+#define MAXVALUELEN 48
 // a single option
 class Opt
 {
@@ -291,6 +291,7 @@ const char *Option::GetOption(const char *_opt, const char *_default)
     //Serial.print("Not found option ");
     //Serial.println(_opt);
     o = new Opt(_opt, _default);
+    Save();
   }
   //Serial.print("Returning value ");
   //Serial.println(o->Value());

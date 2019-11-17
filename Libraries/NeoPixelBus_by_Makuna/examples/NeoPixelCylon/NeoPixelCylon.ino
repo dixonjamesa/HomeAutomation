@@ -50,7 +50,7 @@ void FadeAnimUpdate(const AnimationParam& param)
 {
     if (param.state == AnimationState_Completed)
     {
-        FadeAll(10);
+        FadeAll(1);
         animations.RestartAnimation(param.index);
     }
 }
@@ -102,7 +102,7 @@ void SetupAnimations()
     animations.StartAnimation(0, 5, FadeAnimUpdate);
 
     // take several seconds to move eye fron one side to the other
-    animations.StartAnimation(1, 2000, MoveAnimUpdate);
+    animations.StartAnimation(1, 500, MoveAnimUpdate);
 }
 
 void setup()

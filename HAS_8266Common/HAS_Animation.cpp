@@ -47,6 +47,8 @@ int GetStripLength()
 void SetAnimation(int _i)
 {
   AnimMode = _i%Anim_Max;
+  outR++; // do this to ensure colour is slightly off, so it's guaranteed to update next loop
+  // (see output of AnimateColor as used in the UpdateAnimation method )
 }
 
 int GetAnimation()
@@ -253,16 +255,16 @@ void UpdateAnimation(bool _enabled, int _speed)
       }
       SetPixels(StripLength, bright, outR, outG, outB);
       break;
-      case Anim_Bounce:
-        FadePixels(2);
-        SetPixel(seed, bright, outR, outG, outB);
-        if( --changeDel <= 0 )
-        {
-          changeDel = _speed;
-          seed += 1;
-          if( seed >= StripLength ) seed -= StripLength;
-        }
-        break;
+    case Anim_Bounce:
+      FadePixels(2);
+      SetPixel(seed, bright, outR, outG, outB);
+      if( --changeDel <= 0 )
+      {
+        changeDel = _speed;
+        seed += 1;
+        if( seed >= StripLength ) seed -= StripLength;
+      }
+      break;
   }
 }
 

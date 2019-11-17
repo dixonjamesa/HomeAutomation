@@ -10,6 +10,7 @@
 #include <Arduino.h>
 #include "HAS_Comms.h"
 #include "HAS_option.h"
+#include "HAS_Update.h"
 #include "HAS_Main.h"
 #include "HAS_Animation.h"
 
@@ -88,7 +89,7 @@ void MQTTcallback(char* _topic, byte* _payload, unsigned int _length)
   }
 
   // first check for a match against any of the LEDtopics...
-  // in this instance, just update teh LED to math the topic status, and return out
+  // in this instance, just update the LED to match the topic status, and return out
   char contents[128];
   for( int i=0 ; i < NUM_OUTS ; i++ )
   {
@@ -205,6 +206,33 @@ void MQTTcallback(char* _topic, byte* _payload, unsigned int _length)
       // just carry on...
       return;
     }
+    else
+    if( !strncmp(messtype, "UPDATE", 6) && strlen(messtype) == 6) // UPDATE
+    {
+      // rotary command
+      Serial.print("Update: ");
+      if( payload != "" && payload != NULL )
+      {
+          UpdateURL = payload;
+      }
+      else
+      {
+        UpdateURL = options.UpdateServer();
+      }
+      Serial.println(UpdateURL);
+      UpdateNow = true;
+      return;
+    }
+    else
+    if( !strncmp(messtype, "UPDATESERVER", 12) && strlen(messtype) == 12) // UPDATESERVER
+    {
+      // rotary command
+      Serial.print("UpdateServer:  ");
+      Serial.println(payload);
+      options.UpdateServer( payload);
+      return;
+    }
+
     else if( !strncmp(messtype, "MODE", 4) && strlen(messtype) == 4) // MODE
     {
       // mode command
@@ -274,6 +302,19 @@ void MQTTcallback(char* _topic, byte* _payload, unsigned int _length)
             break;
         }
       }
+    }
+    else if( !strncmp(messtype, "VERSION", 7) && strlen(messtype) == 7)
+    {
+      // hue command
+      Serial.print("Version: ");
+      Serial.println(payload);
+      sprintf(contents, "{\"VERSION\":\"%s\"}", options.Version());
+      char message[128];
+      sprintf(message, "%s/%s/VERSION", options.MqttTopic(), options.Prefix3());
+      //Serial.print("Going to publish ");
+      //Serial.println(message);
+      //Serial.println(contents);
+      PSclient.publish(message, options.Version(), false);
     }
     else if( !strncmp(messtype, "HUE", 3) && strlen(messtype) == 3) // HUE
     {
@@ -414,6 +455,8 @@ void MQTTcallback(char* _topic, byte* _payload, unsigned int _length)
       }
     }
   }
+  Serial.print("Payload handled, result: ");
+  Serial.println(contents);
   // now send the result mqtt message to confirm what happened
   char message[128];
   sprintf(message, "%s/%s/RESULT", options.MqttTopic(), options.Prefix2());
@@ -438,7 +481,7 @@ void setupAutoDisco( bool _clear )
     Serial.print("...");
     if( options.OutType(i) != OUTTYPE_NONE  && !_clear )
     {
-      String data = "{\"device_class\":\"light\",\"name\":\"";
+      String data = "{\"name\":\"";
       data += options.FriendlyNameParsed(i);
       data += "\"";
       data += ",\"cmd_t\":\"~/cmnd/POWER" + String(i) + "\"";
@@ -462,9 +505,22 @@ void setupAutoDisco( bool _clear )
       data += ",\"pl_off\":\"OFF\",\"pl_on\":\"ON\",\"avty_t\":\"~/";
       data += options.Prefix3();
       data += "/LWT\",\"pl_avail\":\"Online\",\"pl_not_avail\":\"Offline\"";
+      data += ",\"uniq_id\":\"" + UID + "\"";
+      data += ",\"device\":{\"identifiers\":[\"";
+      data += options.UID();
+      data += "\"]";
+      data += ",\"name\":\"";
+      data += options.Unit();
+      data += "\"";
+      data += ",\"model\":\"JAD-8266 Common\"";
+      data += ",\"sw_version\":\"";
+      data += P_VERSION;
+      data += "\"";
+      data += ",\"manufacturer\":\"JADixon\"";
+
+      data += "}";
       data += ",\"~\":\"";
-      data +=
-      options.MqttTopic();
+      data += options.MqttTopic();
       data += "\"";
       data += "}";
       if( !PSclient.publish(disco.c_str(), data.c_str(), true) )
@@ -481,7 +537,7 @@ void setupAutoDisco( bool _clear )
         Serial.println("FAIL.");
       }
     }
-    PSclient.loop();
+    //PSclient.loop();
   }
-  Serial.println("Done.");
+  Serial.println("Done AD.");
 }
