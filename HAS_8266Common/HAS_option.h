@@ -117,23 +117,43 @@ class Option
     void RotTopic(int _id, const char *_val) { char tb[16]; sprintf(tb, "Rot%dTopic", _id); SetOption(tb, _val);}
 
 
-  // Outputs
+    // Outputs
     // [Out<1-8>Pin]
     const int OutPin(int _id) { char tb[16]; sprintf(tb, "Out%dPin", _id); return atoi(GetOption(tb, outDefaults[_id-1]));}
     void OutPin(int _id, int _val) { char tb[16],vb[16]; sprintf(tb, "Out%dPin", _id); sprintf(vb, "%d", _val); SetOption(tb, vb);}
     // [Out<1-8>Type]
     const int OutType(int _id) { char tb[16]; sprintf(tb, "Out%dType", _id); return atoi(GetOption(tb, outTypes[_id-1]));}
     void OutType(int _id, int _val) { char tb[16],vb[16]; sprintf(tb, "Out%dType", _id); sprintf(vb, "%d", _val); SetOption(tb, vb);}
+    // These values used to remember status across reboots:
+    const int Output(int _id) { char tb[16]; sprintf(tb, "Out%dVal", _id); return atoi(GetOption(tb, 0));}
+    void Output(int _id, int _val) { char tb[16],vb[16]; sprintf(tb, "Out%dVal", _id); sprintf(vb, "%d", _val); SetOption(tb, vb);}
+
+
     // [Out[1-8]LED]
     const int OutLED(int _id) { char tb[16]; sprintf(tb, "Out%dLED", _id); return atoi(GetOption(tb, ledDefaults[_id-1]));}
     void OutLED(int _id, int _val) { char tb[16],vb[16]; sprintf(tb, "Out%dLED", _id); sprintf(vb, "%d", _val); SetOption(tb, vb);}
     // [LED<1-8>Topic]
     const char *LEDTopic(int _id) { char tb[16]; sprintf(tb, "LED%dTopic", _id); return GetOption(tb, LEDTopicDefaults[_id-1]);}
     void LEDTopic(int _id, const char *_val) { char tb[16]; sprintf(tb, "LED%dTopic", _id); SetOption(tb, _val);}
+    // [LED<1-8>On] - value to match to turn the LED on
+    const char *LEDOn(int _id) { char tb[16]; sprintf(tb, "LED%dOn", _id); return GetOption(tb, LED_ONDEFAULT);}
+    void LEDOn(int _id, const char *_val) { char tb[16]; sprintf(tb, "LED%dOn", _id); SetOption(tb, _val);}
+    // [LED<1-8>Flash] - value to match to mae the LED flash
+    const char *LEDFlash(int _id) { char tb[16]; sprintf(tb, "LED%dFlash", _id); return GetOption(tb, LED_FLASHDEFAULT);}
+    void LEDFlash(int _id, const char *_val) { char tb[16]; sprintf(tb, "LED%dFlash", _id); SetOption(tb, _val);}
 
-    // [RGB<1-8>Count]
+    // [RGBCount]
     const int RGBCount() { return atoi(GetOption("RGBCount", RGB_COUNT));}
-    void RGBCount(int _val) { char vb[16]; sprintf(vb, "%d", max(0, min(MAX_LED_COUNT, _val))); SetOption("RGBCount", vb);}
+    void RGBCount(int _val) { char vb[8]; sprintf(vb, "%d", max(0, min(MAX_LED_COUNT, _val))); SetOption("RGBCount", vb);}
+    // These values used to remember RGBS across reboots:
+    const int Red() { return atoi(GetOption("Red", 128));}
+    void Red(int _val) { char vb[8]; sprintf(vb, "%d", max(0, min(255, _val))); SetOption("Red", vb);}
+    const int Green() { return atoi(GetOption("Green", 128));}
+    void Green(int _val) { char vb[8]; sprintf(vb, "%d", max(0, min(255, _val))); SetOption("Green", vb);}
+    const int Blue() { return atoi(GetOption("Blue", 128));}
+    void Blue(int _val) { char vb[8]; sprintf(vb, "%d", max(0, min(255, _val))); SetOption("Blue", vb);}
+    const int Bright() { return atoi(GetOption("Bright", 128));}
+    void Bright(int _val) { char vb[8]; sprintf(vb, "%d", max(0, min(255, _val))); SetOption("Bright", vb);}
 
     // [ResetPin]
     const int ResetPin() { return atoi(GetOption("ResetPin", RESET_PIN));}

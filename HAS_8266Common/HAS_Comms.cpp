@@ -13,6 +13,7 @@
 #include "HAS_Update.h"
 #include "HAS_Main.h"
 #include "HAS_Animation.h"
+#include <ESP8266WiFi.h>
 
 
 char messageBuffer[MBUFSIZE];
@@ -35,7 +36,7 @@ void setupMQTTMessages()
   subscribeTo( tb );
   sprintf(tb, "%s/#", options.MqttGroupTopic());
   subscribeTo( tb );
-  for( int i=0 ; i < NUM_OUTS ; i++ )
+  for( int i=1 ; i <= NUM_OUTS ; i++ )
   {
     if( *options.LEDTopic(i) != 0 )
     {
@@ -45,16 +46,21 @@ void setupMQTTMessages()
 }
 
 // Do requisite action for state message payload
-void HandleONOFFTOGGLE( char* payload, int i )
+void HandleONOFFTOGGLE( char* payload, int i /* 1-n */ )
 {
+  Serial.print("HandleONOFF: ");
+  Serial.println(payload);
   if( !strncmp(payload, "TOGGLE", 6) ) {
-    SetOutput(i, false, true);
+    switches[i-1].Toggle();
+    //SetOutput(i, false, true);
   }
   else if( !strncmp(payload, "ON", 2) ) {
-    SetOutput(i, true);
+    switches[i-1].On();
+    //SetOutput(i, true);
   }
   else if( !strncmp(payload, "OFF", 3) ) {
-    SetOutput(i, false);
+    switches[i-1].Off();
+    //SetOutput(i, false);
   }
 }
 
@@ -64,15 +70,15 @@ void MQTTcallback(char* _topic, byte* _payload, unsigned int _length)
 {
   int i = 0;
   bool match = false;
-  // tae a copy of the topic (don't want to be fiddling inside PubSubClient's buffer really)
+  // take a copy of the topic (don't want to be fiddling inside PubSubClient's buffer really)
   char topic[127];
   strcpy(topic, _topic);
   char  *messtype = topic;
   char *originaltopic = _topic;
   // get a copy of the payloa and zero-terminate
-  char payload[255];
+  char payload[256];
   strncpy(payload, (char *)_payload, min((int)_length, 255));
-  payload[_length] = 0;
+  payload[min((int)_length, 255)] = 0;
 
   Serial.print("MQTT in: '");
   Serial.print(messtype);
@@ -90,8 +96,7 @@ void MQTTcallback(char* _topic, byte* _payload, unsigned int _length)
 
   // first check for a match against any of the LEDtopics...
   // in this instance, just update the LED to match the topic status, and return out
-  char contents[128];
-  for( int i=0 ; i < NUM_OUTS ; i++ )
+  for( int i=1 ; i <= NUM_OUTS ; i++ )
   {
     if( *options.LEDTopic(i) != 0 )
     {
@@ -109,16 +114,31 @@ void MQTTcallback(char* _topic, byte* _payload, unsigned int _length)
         Serial.print("Matched ");
         Serial.print(fnp);
         Serial.print(" for LEDTopic ");
-        Serial.println(i);
+        Serial.print(i);
+        Serial.print(", payload: ");
+        Serial.println(payload);
         if( _length > 0 )
         {
-          HandleONOFFTOGGLE(payload, i);
+          if( *options.LEDOn(i)!= 0 && !strcmp(payload, options.LEDOn(i)) )
+          {
+            SetLED(i, true);
+          }
+          else if( *options.LEDFlash(i)!= 0 && !strcmp(payload, options.LEDFlash(i)) )
+          {
+            SetLED(i, true, true);
+          }
+          else
+          {
+            SetLED(i, false);
+          }
         }
         // nothing more to do
         return;
       }
     }
   }
+
+  char contents[128];
   if( !match )
   {
     // so now find first '/'
@@ -137,30 +157,6 @@ void MQTTcallback(char* _topic, byte* _payload, unsigned int _length)
     Serial.print("] ");
     Serial.println();
 
-#if false // removed - friendlyname can contain spaces
-
-    // see if the command matches the 'friendlyname':
-    for(int i=1 ; i<= NUM_OUTS ; i++)
-    {
-      char fnp[64];
-      strcpy(fnp, options.FriendlyNameParsed(i));
-        // uppercase so it's all case insensitive
-        for (int j = 0; j < strlen(fnp); j++)
-        {
-            fnp[j] = toupper(fnp[j]);
-        }
-
-      if( !strcmp(messtype, fnp) )
-      { // yep, we match one of the 'friendlyname's
-        match = true; // flag that we've matched
-        if( _length > 0 )
-        {
-          HandleONOFFTOGGLE(payload, i);
-        }
-        sprintf(contents, "{\"%s\":\"%s\"}", options.FriendlyNameParsed(i), GetOutput(i)?"ON":"OFF");
-      }
-    }
-#endif
   }
   // if we've not matched a command yet, keep trying:
   if( !match )
@@ -303,9 +299,15 @@ void MQTTcallback(char* _topic, byte* _payload, unsigned int _length)
         }
       }
     }
+    else if( !strncmp(messtype, "REBOOT", 6) && strlen(messtype) == 6)
+    {
+      // REBOOT command
+      Serial.print("Reboot");
+      ESP.restart();
+    }
     else if( !strncmp(messtype, "VERSION", 7) && strlen(messtype) == 7)
     {
-      // hue command
+      // VERSION command
       Serial.print("Version: ");
       Serial.println(payload);
       sprintf(contents, "{\"VERSION\":\"%s\"}", options.Version());
@@ -315,6 +317,21 @@ void MQTTcallback(char* _topic, byte* _payload, unsigned int _length)
       //Serial.println(message);
       //Serial.println(contents);
       PSclient.publish(message, options.Version(), false);
+      return;
+    }
+    else if( !strncmp(messtype, "IP", 2) && strlen(messtype) == 2)
+    {
+      // IP command
+      Serial.print("IP: ");
+      Serial.println(payload);
+      sprintf(contents, "{\"IP\":\"%s\}}", WiFi.localIP().toString().c_str());
+      char message[128];
+      sprintf(message, "%s/%s/IP", options.MqttTopic(), options.Prefix3());
+      //Serial.print("Going to publish ");
+      //Serial.println(message);
+      //Serial.println(contents);
+      PSclient.publish(message, WiFi.localIP().toString().c_str(), false);
+      return;
     }
     else if( !strncmp(messtype, "HUE", 3) && strlen(messtype) == 3) // HUE
     {
@@ -537,7 +554,50 @@ void setupAutoDisco( bool _clear )
         Serial.println("FAIL.");
       }
     }
-    //PSclient.loop();
+  }
+  // register as a sensor:
+  String UID = String(options.UID()) + "_SE_1";
+  String disco = "homeassistant/sensor/" + UID + "/config";
+  if( !_clear && *options.AnalogTrigger() != 0 )
+  {
+    String data = "{\"name\":\"";
+    data += "AnalogSense";
+    data += "\"";
+    data += ",\"stat_t\":\"~/";
+    data += options.Prefix3();
+    data += "/STATE\"";
+    data += ",\"val_tpl\":\"{{value_json.Analog}}\"";
+    data += ",\"unit_of_meas\":\" \",\"avty_t\":\"~/";
+    data += options.Prefix3();
+    data += "/LWT\",\"pl_avail\":\"Online\",\"pl_not_avail\":\"Offline\"";
+    data += ",\"uniq_id\":\"" + UID + "\"";
+    data += ",\"device\":{\"identifiers\":[\"";
+    data += options.UID();
+    data += "\"]";
+    data += ",\"name\":\"";
+    data += options.Unit();
+    data += "\"";
+    data += ",\"model\":\"JAD-8266 Common\"";
+    data += ",\"sw_version\":\"";
+    data += P_VERSION;
+    data += "\"";
+    data += ",\"manufacturer\":\"JADixon\"";
+
+    data += "}";
+    data += ",\"~\":\"";
+    data += options.MqttTopic();
+    data += "\"";
+    data += "}";
+    if( !PSclient.publish(disco.c_str(), data.c_str(), true) )
+    {
+      Serial.println(data.c_str());
+      Serial.println("FAIL.");
+    }
+  }
+  else
+  {
+    // send empty payload to remove any previously retained message
+    PSclient.publish(disco.c_str(), "", true);
   }
   Serial.println("Done AD.");
 }

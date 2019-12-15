@@ -41,6 +41,9 @@ unsigned int UT_hours = 0;
 unsigned int UT_minutes = 0;
 unsigned int UT_seconds = 0;
 
+int AnalogStatus = 3;
+int AnalogValue = 250;
+
 struct Rotary
 {
   int count;
@@ -51,6 +54,8 @@ struct Rotary
 
 T_Switch switches[NUM_SWITCHES];
 bool outputs[NUM_OUTS];
+bool LEDs[NUM_OUTS];
+bool LEDflash[NUM_OUTS];
 Rotary rotaries[NUM_ROTS];
 int resetTimer;
 int gMode = 0;
@@ -168,6 +173,7 @@ void PublishStatus()
   if( options.OutType(6) != OUTTYPE_NONE ) { sprintf(tbuf, "\"POWER6\":\"%s\",", outputs[5]?"ON":"OFF"); strcat(messageBuffer, tbuf); }
   if( options.OutType(7) != OUTTYPE_NONE ) { sprintf(tbuf, "\"POWER7\":\"%s\",", outputs[6]?"ON":"OFF"); strcat(messageBuffer, tbuf); }
   if( options.OutType(8) != OUTTYPE_NONE ) { sprintf(tbuf, "\"POWER8\":\"%s\",", outputs[7]?"ON":"OFF"); strcat(messageBuffer, tbuf); }
+  if( *options.AnalogTrigger() != 0 ) { sprintf(tbuf, "\"Analog\":\"%d\",", AnalogStatus); strcat(messageBuffer, tbuf); }
 
   sprintf(tbuf, "\"Wifi\":{\"AP\":%d,\"SSId\":\"%s\",\"IP\":\"%s\",\"RSSI\":%d,\"APMac\":\"%s\"},\"Mqtt\":\"%d\"}",
                           WiFi.status(), WiFi.SSID().c_str(), WiFi.localIP().toString().c_str(), -WiFi.RSSI(), WiFi.BSSIDstr().c_str(), PSclient.state());
@@ -249,7 +255,7 @@ void tryConnectMQTT()
         Serial.println(PSclient.connected());
         // ... and subscribe to all topics
         setupMQTTMessages();
-        PublishInitInfo();
+        PublishInitInfo(); // LWT, status and auto disco stuff
       }
       else
       {
@@ -275,6 +281,7 @@ void disconnectWIFI()
 }
 
 int WIFI_fail = 0;
+int WIFI_giveup = 2;
 
 void testWIFI()
 {
@@ -317,7 +324,7 @@ void testWIFI()
       WIFI_connected = false;
       break;
     case WL_DISCONNECTED:
-      sprintf( WIFI_status, "Disconnected - not in station mode");
+      sprintf( WIFI_status, "Disconnected from network");
       Serial.println(WIFI_status);
       WIFI_connected = false;
       break;
@@ -332,8 +339,9 @@ void testWIFI()
   {
     //Serial.print("WiFi Status: ");
     //Serial.println(WiFiStat[WiFi.status()]);
-    if( WIFI_fail > 30 )
+    if( WIFI_fail > 20 )
     {
+      if( --WIFI_giveup <= 0 ) ESP.restart();
       WiFi.printDiag(Serial);
       WIFI_fail = 0;
       // wifi not able to connect for > 30 seconds
@@ -436,6 +444,47 @@ void testUpdate()
   }
 }
 
+void updateAnalog()
+{
+  int av = analogRead(A0);
+  // analog...
+  if( *options.AnalogTopic() != 0 )
+  {
+    if( av != AnalogValue )
+    {
+      char data[10];
+      sprintf(data, "%d", av);
+      PSclient.publish(options.AnalogTopic(), data, false);
+      AnalogValue = av;
+    }
+  }
+  if( *options.AnalogTrigger() != 0 )
+  {
+    // topic set, so something to do..
+    int as = AnalogStatus;// previous status
+
+    if( av < options.ThresholdLow() || av > options.ThresholdHigh() )
+    {
+      as = 2;
+    }
+    else if( av > options.ThresholdMid() )
+    {
+      as = 1;
+    }
+    else
+    {
+      as = 0;
+    }
+    if( as != AnalogStatus ) // has status changed?
+    {
+      char data[10];
+      AnalogStatus = as;
+      sprintf(data, "%d", as);
+      PSclient.publish(options.AnalogTrigger(), data, false);
+    }
+  }
+}
+
 // standard sketch setup() function
 void setup()
 {
@@ -451,10 +500,20 @@ void setup()
   options.Begin();
 
   //Serial.setDebugOutput(true);
+  //output pins type
+  for(int i=0; i< NUM_OUTS; i++)
+  {
+    p = options.OutPin(i+1); if( p != -1 ) { pinMode(p, OUTPUT);digitalWrite(p, (options.OutType(i+1)==OUTTYPE_ONOFF)?!outputs[i]:outputs[i]); }
+    p = options.OutLED(i+1); if( p != -1 ) pinMode(p, OUTPUT);
+  }
 
   for(int i=0 ; i < NUM_SWITCHES ; i++)
   {
     switches[i].Setup(i+1, options.SwPin1(i+1), options.SwPin2(i+1), options.SwType(i+1), options.SwTopic(i+1));
+  }
+  if( *options.AnalogTopic() != 0  || *options.AnalogTrigger() != 0 )
+  {
+    pinMode(A0, INPUT);
   }
 
   // Setup the rotary info
@@ -470,16 +529,9 @@ void setup()
     p = options.RotPinU(i+1); if( p != -1 ) { pinMode(p, INPUT_PULLUP); Serial.print("Pullup rot pinU: ");Serial.println(p); }
     p = options.RotPinD(i+1); if( p != -1 ) { pinMode(p, INPUT_PULLUP); Serial.print("Pullup rot pinD: ");Serial.println(p); }
   }
-  //output pins type
-  for(int i=0; i< NUM_OUTS; i++)
-  {
-    p = options.OutPin(i+1); if( p != -1 ) { pinMode(p, OUTPUT);digitalWrite(p, !outputs[i]); }
-    p = options.OutLED(i+1); if( p != -1 ) pinMode(p, OUTPUT);
-  }
   if( options.StatusLED() != -1 ) pinMode(options.StatusLED(), OUTPUT);
   if( options.ResetPin() != -1 ) pinMode(options.ResetPin(), INPUT_PULLUP);
 
-  // init done
   String u;
   u = options.Unit();
   Serial.print("Start unit name: ");
@@ -489,6 +541,11 @@ void setup()
   SetStripLength(options.RGBCount());
   Serial.print("RGB Count is ");
   Serial.println(GetStripLength());
+
+  for(int i=1 ; i <= NUM_OUTS ; i++)
+  {
+    SetOutput(i, options.Output(i)); // restore from options on reboot
+  }
 
   SetBrightness(128);
   // web server running, This will be accessible over softAP (x.x.4.1) and WiFi
@@ -500,6 +557,7 @@ void setup()
   callbackList.push_back(new cbData(tryConnectMQTT, 0, true, 3000));
   callbackList.push_back(new cbData(testWIFI, 0, true, 2000 ));
   callbackList.push_back(new cbData(testUpdate, 0, true, 10000 ));
+  callbackList.push_back(new cbData(updateAnalog, 0, true, 2000 ));
 
   // auto-reconnect is handled by the WiFi class...
   //callbackList.push_back(new cbData(tryConnectWIFI, 0, true, 30000));
@@ -554,16 +612,34 @@ bool GetOutput(int _id)
   return -1;
 }
 
+/* Set output LED on or Off
+ */
+void SetLED( int _id /* 1-n */, bool _state, bool _flash )
+{
+  int ledpin = options.OutLED(_id);
+  bool invert = options.InvertLED();
+  LEDs[_id-1] = _state;
+  if(invert) _state = !_state;
+  LEDflash[_id-1] = _flash;
+  // set the LED state:
+  if( ledpin != -1 )
+  {
+    /*Serial.print("Setting LED ");
+    Serial.print(ledpin);
+    Serial.print(" to ");
+    Serial.println(_state);*/
+    digitalWrite(ledpin, _state);
+  }
+}
 /*
  * Sets output pin state and LED, and
  * publishes <unit>/stat/POWER<n> to MQTT if changed
  */
-void SetOutput( int _id, bool _state, bool _toggle, int _av )
+void SetOutput( int _id /* 1-n */, bool _state, bool _toggle, int _av )
 {
   if( _id > 0 && _id <= NUM_OUTS )
   {
     int pin = -1;
-    int led = -1;
     if( _toggle )
     {
       outputs[_id-1] = !outputs[_id-1];
@@ -574,18 +650,13 @@ void SetOutput( int _id, bool _state, bool _toggle, int _av )
       outputs[_id-1] = _state;
     }
     pin = options.OutPin(_id);
-    led = options.OutLED(_id);
+    options.Output(_id, _state); // store in options
 
-    // set the LED state:
-    if( led != -1 )
+    if( *options.LEDTopic(_id) == 0 )
     {
-      Serial.print("Setting LED ");
-      Serial.print(led);
-      Serial.print(" to ");
-      Serial.println(options.InvertLED()?!_state:_state);
-      digitalWrite(led, options.InvertLED()?!_state:_state);
+      // immediately set the LED if it's not on a separate topic
+      SetLED( _id, _state );
     }
-
     // set the output state, and publish to MQTT if changed:
     if( pin != -1 )
     {
@@ -596,7 +667,7 @@ void SetOutput( int _id, bool _state, bool _toggle, int _av )
       int ot = options.OutType(_id);
       if( ot == OUTTYPE_ONOFF || ot == OUTTYPE_OFFON )
       {
-        digitalWrite(pin, ot == OUTTYPE_ONOFF?!_state:_state); // direct hardware connection for relability. Note set low to activate
+        digitalWrite(pin, ot == OUTTYPE_ONOFF?!_state:_state); // direct hardware connection for reliability. Note set low to activate
         Serial.print("Setting Pin ");
         Serial.print(pin);
         Serial.print(" to ");
@@ -617,10 +688,10 @@ void SetOutput( int _id, bool _state, bool _toggle, int _av )
           int r,g,b;
           GetRGB(r,g,b);
           // if it's off due to brightness or RGB values, then set to mid values:
-          if( GetBrightness() == 0 ) SetBrightness(128);
+          if( GetBrightness() == 0 ) SetBrightness(options.Bright());
           if( r == 0 && g == 0 && b == 0 )
           {
-            SetRGB(128, 128, 128);
+            SetRGB(options.Red(), options.Green(), options.Blue());
           }
         }
         else
@@ -631,7 +702,8 @@ void SetOutput( int _id, bool _state, bool _toggle, int _av )
       // publish state message
       String message = String(options.MqttTopic()) + "/" + options.Prefix2() + "/POWER" + _id;
       //Serial.println(message);
-      PSclient.publish(message.c_str(), _state?"ON":"OFF", true); // retained power state
+      //PSclient.publish(message.c_str(), _state?"ON":"OFF", true); // retained power state
+      PSclient.publish(message.c_str(), _state?"ON":"OFF", false); // non-retained power state
       PublishStatus(); // also do this for the HomeAssistant update
     }
   }
@@ -715,8 +787,6 @@ void loopSeconds()
     loopMinutes();
   }
 }
-
-int AnalogStatus = 0;
 
 void loop()
 {
@@ -819,52 +889,27 @@ void loop()
     switches[i].Update(gTimestep);
   }
   //Serial.print("E.");
-
-  if( (gTime/1000) < (((int)millis())/1000) )
+  // note analog value is handled in the updateAnalog callback.
+  int onoff = (gTime/500)%2;
+  for(int li = 0 ; li < NUM_OUTS ; li++ )
   {
-    // analog...
-    if( *options.AnalogTopic() != 0 )
+    if( LEDflash[li] )
     {
-      char data[10];
-      int av = analogRead(A0);
-      sprintf(data, "%d", av);
-      PSclient.publish(options.AnalogTopic(), data, false);
-    }
-    if( *options.AnalogTrigger() != 0 )
-    {
-      // topic set, so something to do..
-      int as = AnalogStatus;
-      int av = analogRead(A0);
-
-      if( av < options.ThresholdLow() || av > options.ThresholdHigh() )
-      {
-        as = 2;
-      }
-      else if( av > options.ThresholdMid() )
-      {
-        as = 1;
-      }
-      else
-      {
-        as = 0;
-      }
-      if( as != AnalogStatus )
-      {
-        char data[10];
-        AnalogStatus = as;
-        sprintf(data, "%d", as);
-        PSclient.publish(options.AnalogTrigger(), data, false);
-      }
+      SetLED(li+1, onoff, true);
     }
   }
-  if( options.ResetPin() != -1 )
+
+  int resetPin = options.ResetPin();
+  if( resetPin == -1 ) resetPin = options.SwPin1(1);
+  if( resetPin != -1 )
   {
-    bool ResetPressed = !digitalRead(options.ResetPin());
+    bool ResetPressed = !digitalRead(resetPin);
     if( ResetPressed )
     {
       resetTimer += gTimestep;
       if( resetTimer > 5000 )
       {
+        Serial.println("Resetting due to >5s held reset switch");
         ESP.restart();
       }
     }

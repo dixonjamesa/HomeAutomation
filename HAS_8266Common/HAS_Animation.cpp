@@ -64,6 +64,7 @@ int GetBrightness()
 void SetBrightness(int bri)
 {
   targetBright = max(0, min(255, bri));
+  options.Bright(targetBright);
 }
 
 /*
@@ -119,6 +120,9 @@ void SetRGBfromHSV(float H, float S, float V)
      targetG = (M)*255;
      targetB = (M)*255;
   }
+  options.Red(targetR);
+  options.Green(targetG);
+  options.Blue(targetB);
 }
 
 void ChangeHue(int _amount )
@@ -191,8 +195,11 @@ void GetRGB(int &r, int &g, int &b)
 void SetRGB(int r, int g, int b)
 {
   targetR = r;
+  options.Red(r);
   targetG = g;
+  options.Green(g);
   targetB = b;
+  options.Blue(b);
   SetPixels(StripLength, bright, outR, outG, outB);
 
   float R = ((float)targetR) / 255.0;

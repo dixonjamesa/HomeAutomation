@@ -22,9 +22,10 @@ String T_Switch::CmndString()
 
 void T_Switch::Set( const char *_val, bool _out, bool _tog )
 {
+  // 0.3.9: Don't do this, as can't see a reason it's needed
   // first publish switch command message:
-  String t = CmndString();
-  PSclient.publish(t.c_str(), _val, false);
+  //String t = CmndString();
+  //PSclient.publish(t.c_str(), _val, false);
 
   // and additional topic if set:
   if( *topic != 0 )
@@ -39,9 +40,9 @@ void T_Switch::Set( const char *_val, bool _out, bool _tog )
       pch = strtok(NULL, ";");
     }
   }
-  Serial.print(t);
-  Serial.print(": ");
-  Serial.println(_val);
+  //Serial.print(t);
+  //Serial.print(": ");
+  //Serial.println(_val);
 
   // and now make the change to the hardware:
   SetOutput(id, _out, _tog);
@@ -57,6 +58,12 @@ void T_Switch::On()
 {
   Serial.println("On switch");
   Set("ON", true, false);
+  if( type == SWTYPE_DELAY )
+  {
+    delayTimer = options.SwDelay(id);
+    Serial.print("Delay is ");
+    Serial.println(delayTimer);
+  }
 }
 void T_Switch::Off()
 {
@@ -70,7 +77,23 @@ void T_Switch::Off()
  */
 void T_Switch::Update( int _timeStep )
 {
+  if( type == SWTYPE_DELAY )
+  {
+    if( delayTimer > 0 )
+    {
+      delayTimer -= _timeStep;
+      if( delayTimer <= 0 )
+      {
+        delayTimer = 0;
+        // switch off again:
+        Serial.println("Delay switch timeout - OFF now");
+        Off();
+      }
+    }
+  }
+
   if( pin1 == 255 ) return;
+
   if( type == SWTYPE_PRESS || type == SWTYPE_RELEASE || type == SWTYPE_PUSHBUTTON || type == SWTYPE_DELAY)
   { // pushbutton or on/off
     if( !digitalRead(pin1) )
@@ -85,7 +108,6 @@ void T_Switch::Update( int _timeStep )
         if( type == SWTYPE_PUSHBUTTON || type == SWTYPE_DELAY )
         {
           On();
-          delayTimer = options.SwDelay(id);
         }
       }
     }
@@ -137,17 +159,5 @@ void T_Switch::Update( int _timeStep )
         latch2 = false;
       }
     }
-  }
-
-  if( type == SWTYPE_DELAY )
-  {
-    if( delayTimer > 0 )
-      delayTimer -= _timeStep;
-      if( delayTimer <= 0 )
-      {
-        delayTimer = 0;
-        // switch off again:
-        Off();
-      }
   }
 }

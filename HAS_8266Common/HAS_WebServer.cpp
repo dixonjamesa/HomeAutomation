@@ -190,7 +190,7 @@ void HtmlParamOutTypeList( char *_to, const char *_title, const char *_id, const
   strcat(_to, "</select></td></tr>");
 }
 
-char *HtmlSaveButton = "<br><button class=\"button bgrn\" name=\"save\" type=\"submit\">Save</button>";
+char *HtmlSaveButton = "<br><button class=\"button bgrn\" name=\"save\" type=\"submit\">Save</button><br><br><button class=\"button bgrn\" name=\"saverestart\" type=\"submit\">Save and Restart</button>";
 char *HtmlParamBoxEnd = "</form></fieldset>";
 
 /*
@@ -270,7 +270,7 @@ void handleReboot()
  * Read back page args into options
  * and reset if requested
  */
-void handlePageArgs( bool _restart )
+void handlePageArgs( bool _dontRestart )
 {
   bool changed = false; // monitor if any option has changed
 
@@ -279,7 +279,12 @@ void handlePageArgs( bool _restart )
     // args have come back, so let's apply them...
     for(int i=0 ; i < TheServer.args() ; i++)
     {
-      if( TheServer.argName(i) != "save" &&
+      if( TheServer.argName(i) == "saverestart" )
+      {
+        _dontRestart = false;
+      }
+      else if( TheServer.argName(i) != "save" &&
+          TheServer.argName(i) != "update" &&
           TheServer.argName(i) != "scan" ) // reserved names - don't do anything
       {
         options.SetOption(TheServer.argName(i).c_str(), TheServer.arg(i).c_str());
@@ -291,7 +296,7 @@ void handlePageArgs( bool _restart )
         Serial.println(TheServer.arg(i));
         }
     }
-    if( changed && _restart )
+    if( changed && !_dontRestart )
     {
       // restart the unit:
       handleReboot();
@@ -438,7 +443,7 @@ void handleRoot()
       strcat(rBuffer, "<td valign='top'>");
       //HtmlSwitch(rBuffer, tbuf+6, tbuf, options.OutPin(i+1) != -1, i+1, options.SwType(i+1));
       if( i == 0 && options.OutType(1) == OUTTYPE_RGB ) rgb = true;
-      HtmlSwitch(rBuffer, options.FriendlyNameParsed(i+1), tbuf, options.OutPin(i+1) != -1, i+1, options.SwType(i+1), rgb);
+      HtmlSwitch(rBuffer, options.FriendlyNameParsed(i+1), tbuf, (options.OutPin(i+1) != -1) || *options.LEDTopic(i+1) != 0, i+1, options.SwType(i+1), rgb);
       //HtmlRotary( rBuffer, "Rotary1", options.Rot1PinU() != -1);
       strcat(rBuffer, "</td>");
       if( ++cellcount > 1 )
@@ -480,8 +485,10 @@ void handleUpdate()
       else
       if(  TheServer.argName(i) == "update" )
       {
-        UpdateNow = true;
-        strcat(rBuffer, "<p>Downloading from server ...</p><br>");
+        UpdateNow = true; // tell HAS_Update to update
+        strcat(rBuffer, "<p>Downloading from server ... ");
+        strcat(rBuffer, UpdateURL.c_str());
+        strcat(rBuffer, "</p><br>");
         AddButton(rBuffer, "Main Menu", "/");
         strcat(rBuffer, HtmlMenuEnd);
         response();
@@ -492,9 +499,11 @@ void handleUpdate()
 
   HtmlParamBoxStart(rBuffer, "Update Params", "./update");
   HtmlParamParam(rBuffer, "URL", NULL, options.UpdateServer(), "URL", "URL", NULL);
+  strcat(rBuffer, ParamSmTableEnd);
   strcat(rBuffer, HtmlSaveButton);
-  strcat(rBuffer, "<br><button class=\"button bgrn\" name=\"update\" type=\"submit\">Update</button>");
-  strcat(rBuffer, "<br>");
+  strcat(rBuffer, "<br><br><button class=\"button bgrn\" name=\"update\" type=\"submit\">Update</button>");
+  strcat(rBuffer, HtmlParamBoxEnd);
+  strcat(rBuffer, "<br><br>");
   AddButton(rBuffer, "Main Menu", "/");
   strcat(rBuffer, HtmlMenuEnd);
   response();
@@ -630,7 +639,7 @@ void handleRotaries()
 
 void handleAnalog()
 {
-  char tbuf[16];
+  char tbuf[16],tb2[24];
   Serial.println("Serving /config/analog");
   HtmlModule(rBuffer,"Analog");
 
@@ -646,7 +655,8 @@ void handleAnalog()
   HtmlParamParamSm(rBuffer, "Trigger", options.AnalogTrigger(), "", "AnalogTrigger");
 
   sprintf(tbuf,"%d", options.ThresholdLow());
-  HtmlParamParamSm(rBuffer, "Threshold Low",  tbuf, "", "ThresholdLow");
+  sprintf(tb2,"Threshold Low (%d)", analogRead(A0));
+  HtmlParamParamSm(rBuffer, tb2,  tbuf, "", "ThresholdLow");
   sprintf(tbuf,"%d", options.ThresholdMid());
   HtmlParamParamSm(rBuffer, "Threshold Mid",  tbuf, "", "ThresholdMid");
   sprintf(tbuf,"%d", options.ThresholdHigh());
@@ -678,13 +688,19 @@ void handleLEDs1()
 
   for( int i=0 ; i < 4 ; i++ )
   {
-    char n1buf[16], n2buf[16], n3buf[16], n4buf[16];
+    char n1buf[16], n2buf[16];
     sprintf(n1buf,"Out%d Type", i+1);
-    sprintf(n2buf,"LED%d Topic", i+1);
-    sprintf(n3buf,"Out%dType", i+1);
-    sprintf(n4buf,"LED%dTopic", i+1);
-    HtmlParamOutTypeList(rBuffer, n1buf, "", n3buf, HTMLOutTypeList(options.OutType(i+1), i==0 /* only first one can be RGB */));
-    HtmlParamParamSm(rBuffer, n2buf, options.LEDTopic(i+1), "", n4buf);
+    sprintf(n2buf,"Out%dType", i+1);
+    HtmlParamOutTypeList(rBuffer, n1buf, "", n2buf, HTMLOutTypeList(options.OutType(i+1), i==0 /* only first one can be RGB */));
+    sprintf(n1buf,"LED%d Topic", i+1);
+    sprintf(n2buf,"LED%dTopic", i+1);
+    HtmlParamParamSm(rBuffer, n1buf, options.LEDTopic(i+1), "", n2buf);
+    sprintf(n1buf,"LED%d On", i+1);
+    sprintf(n2buf,"LED%dOn", i+1);
+    HtmlParamParamSm(rBuffer, n1buf, options.LEDOn(i+1), "", n2buf);
+    sprintf(n1buf,"LED%d Flash", i+1);
+    sprintf(n2buf,"LED%dFlash", i+1);
+    HtmlParamParamSm(rBuffer, n1buf, options.LEDFlash(i+1), "", n2buf);
   }
   sprintf(tbuf, "%d", options.RGBCount());
   HtmlParamParamSm(rBuffer, "RGB LED Count", tbuf, "", "RGBCount");
@@ -715,13 +731,19 @@ void handleLEDs2()
 
   for( int i=4 ; i < NUM_OUTS ; i++ )
   {
-    char n1buf[16], n2buf[16], n3buf[16], n4buf[16];
+    char n1buf[16], n2buf[16];
     sprintf(n1buf,"Out%d Type", i+1);
-    sprintf(n2buf,"LED%d Topic", i+1);
-    sprintf(n3buf,"Out%dType", i+1);
-    sprintf(n4buf,"LED%dTopic", i+1);
-    HtmlParamOutTypeList(rBuffer, n1buf, "", n3buf, HTMLOutTypeList(options.OutType(i+1), i==0 /* only first one can be RGB */));
-    HtmlParamParamSm(rBuffer, n2buf, options.LEDTopic(i+1), "", n4buf);
+    sprintf(n2buf,"Out%dType", i+1);
+    HtmlParamOutTypeList(rBuffer, n1buf, "", n2buf, HTMLOutTypeList(options.OutType(i+1), i==0 /* only first one can be RGB */));
+    sprintf(n1buf,"LED%d Topic", i+1);
+    sprintf(n2buf,"LED%dTopic", i+1);
+    HtmlParamParamSm(rBuffer, n1buf, options.LEDTopic(i+1), "", n2buf);
+    sprintf(n1buf,"LED%d On", i+1);
+    sprintf(n2buf,"LED%dOn", i+1);
+    HtmlParamParamSm(rBuffer, n1buf, options.LEDOn(i+1), "", n2buf);
+    sprintf(n1buf,"LED%d Flash", i+1);
+    sprintf(n2buf,"LED%dFlash", i+1);
+    HtmlParamParamSm(rBuffer, n1buf, options.LEDFlash(i+1), "", n2buf);
   }
   sprintf(tbuf, "%d", options.RGBCount());
   HtmlParamParamSm(rBuffer, "RGB LED Count", tbuf, "", "RGBCount");
@@ -794,6 +816,7 @@ void handleHW()
     sprintf(tbuf, "%d", options.SwPin2(i+1)); HtmlParamParamSm(rBuffer, n1buf, tbuf, "", n2buf);
   }
 
+  sprintf(tbuf, "%d", options.ResetPin()); HtmlParamParamSm(rBuffer, "Reset Pin", tbuf, "", "ResetPin");
   sprintf(tbuf, "%d", options.StatusLED()); HtmlParamParamSm(rBuffer, "Status LED", tbuf, "", "StatusLED");
   sprintf(tbuf, "%d", options.InvertLED()); HtmlParamParamSm(rBuffer, "Invert LED", tbuf, "", "InvertLED");
 

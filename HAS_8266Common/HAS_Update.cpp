@@ -56,6 +56,7 @@ void TestServerUpdate()
   String VersionURL = UpdateURL.substring(0,UpdateURL.lastIndexOf("/")) + "/version.php";
   Serial.print("Checking for new software update on ");
   Serial.print(VersionURL);
+  Serial.print("...");
 
   HTTPClient client;
   client.begin(VersionURL);
@@ -63,17 +64,27 @@ void TestServerUpdate()
   if (httpCode == 200)
   {
     String payload = client.getString();
-    if( strcmp(payload.c_str(), P_VERSION) > 0 )
+    Serial.print(payload);
+    char tb[32];
+
+    int fbuild = atoi(payload.substring(payload.lastIndexOf(".")+1).c_str());
+    payload = payload.substring(0,payload.lastIndexOf("."));
+    int fminor = atoi(payload.substring(payload.lastIndexOf(".")+1).c_str());
+    payload = payload.substring(0,payload.lastIndexOf("."));
+    int fmajor = atoi(payload.substring(payload.lastIndexOf(".")+1).c_str());
+    sprintf(tb, "  Local:%d.%d.%d <> Remote:%d.%d.%d", VER_MAJOR, VER_MINOR, VER_BUILD, fmajor, fminor, fbuild);
+    Serial.print(tb);
+    if( fmajor > VER_MAJOR ||
+      (fmajor == VER_MAJOR && fminor > VER_MINOR) ||
+      (fmajor == VER_MAJOR && fminor == VER_MINOR && fbuild > VER_BUILD))
     {
       UpdateNow = true;
-      Serial.print("...YES:");
-      Serial.println(payload);
+      Serial.println("...YES");
     }
     else
     {
       UpdateNow = false;
-      Serial.print("...NO:");
-      Serial.println(payload);
+      Serial.println("...NO");
     }
   }
 }

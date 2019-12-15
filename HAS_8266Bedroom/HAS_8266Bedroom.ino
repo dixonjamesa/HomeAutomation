@@ -2,14 +2,14 @@
 // so we can then connect to the main WiFi
 // then connect MQTT nessages to the pins to control relays.
 
-// note to upload to USB, give access with 
+// note to upload to USB, give access with
 // sudo chmod 666 /dev/ttyUSB0
 
 //Flash settings:
 //
 
 #include <ESP8266WiFi.h>
-#include <WiFiClient.h> 
+#include <WiFiClient.h>
 #include <PubSubClient.h>
 #include <ESP8266WebServer.h>
 #include <list>
@@ -41,7 +41,7 @@ class cbData
       {
         timeout = time2;
       }
-    } 
+    }
   }
 };
 
@@ -100,7 +100,7 @@ enum
   SUB_T2,
   SUB_T3
 };
-int topics_vals[] = {0,0,0}; 
+int topics_vals[] = {0,0,0};
 
 char *topics_pub[] = {
     "bedroom/cmnd/POWER",
@@ -124,7 +124,7 @@ int topics_pinsOn[] = {D6, D2, D4};
 int topics_pinsOff[] = {D1, D3, D5};
 int topics_LEDs[] = {D7, D8, 3};
 
-void tryConnectMQTT() 
+void tryConnectMQTT()
 {
   if( WIFI_connected )
   {
@@ -132,7 +132,7 @@ void tryConnectMQTT()
     {
       Serial.print("Attempting MQTT connection...");
       // Attempt to connect
-      if (client.connect("BedSwitchClient")) 
+      if (client.connect("BedSwitchClient"))
       {
         Serial.println("connected");
         // ... and subscribe to all topics
@@ -146,8 +146,8 @@ void tryConnectMQTT()
         Serial.println(client.connected());
         client.publish(topics_pub[PUB_Status], "OK", true);
         client.publish(topics_pub[PUB_IP], WiFi.localIP().toString().c_str(), true);
-      } 
-      else 
+      }
+      else
       {
         Serial.print("failed, rc=");
         Serial.print(client.state());
@@ -164,7 +164,7 @@ void MQTTcallback(char* topic, byte* payload, unsigned int length)
   Serial.print(topic);
   Serial.print("] ");
   // look for the actual topic values, and set LEDs accordingly
-  for (i=SUB_T1V ; i<=SUB_T3V ; i++) 
+  for (i=SUB_T1V ; i<=SUB_T3V ; i++)
   {
     if( !strcmp(topic, topics_sub[i] ) )
     {
@@ -198,7 +198,7 @@ void MQTTcallback(char* topic, byte* payload, unsigned int length)
     client.publish(topics_pub[PUB_Topics], tps);
   }
   // change a topic?
-  for (i=SUB_T1 ; i<=SUB_T3 ; i++) 
+  for (i=SUB_T1 ; i<=SUB_T3 ; i++)
   {
     if( !strcmp(topic, topics_sub[i] ) )
     {
@@ -210,12 +210,12 @@ void MQTTcallback(char* topic, byte* payload, unsigned int length)
       Serial.println((char *)payload);
     }
   }
-  
+
   Serial.println();
 }
 
 
-void handleRoot() 
+void handleRoot()
 {
     response();
 }
@@ -242,7 +242,7 @@ void handleLogon()
 {
   int ssidID = -1;
   int passID = -1;
-  
+
   Serial.print("Attempting WIFI connection..");
   debugout("WIFI connecting...");
 
@@ -255,7 +255,7 @@ void handleLogon()
     if( server.argName(i) == "pass" )
     {
       passID = i;
-    }    
+    }
   }
 
   if( passID != -1 && ssidID != -1 )
@@ -276,7 +276,7 @@ void tryConnectWIFI()
     Serial.print(WIFI_ssid);
     Serial.print(WIFI_pass);
     WiFi.begin(WIFI_ssid.c_str(), WIFI_pass.c_str());
-    
+
     int tries = 0;
 
     while( WiFi.status() != WL_CONNECTED )
@@ -307,7 +307,7 @@ void tryConnectWIFI()
       case WL_CONNECTION_LOST:
       case WL_DISCONNECTED:
         WIFI_status = "Disconnected";
-        break;       
+        break;
       default:
         WIFI_status = "Unknown problem";
         break;
@@ -352,14 +352,14 @@ void response()
   }
 
   htmlRes += "</form>";
-  
+
   htmlRes += HtmlHtmlClose;
 
 
   server.send(200, "text/html", htmlRes);
 }
 
-void setup() 
+void setup()
 {
     delay(1000);
     Serial.begin(9600);
@@ -372,10 +372,10 @@ void setup()
       pinMode(topics_pinsOff[i],INPUT_PULLUP);
       pinMode(topics_LEDs[i],OUTPUT);
     }
-    
+
     handleScan();
     // init done
-        
+
 
     WiFi.softAP(AP_ssid, AP_password);
 
@@ -387,7 +387,7 @@ void setup()
     server.on("/Logon", handleLogon);
     server.begin();
     Serial.println("HTTP server started");
-    pinMode(statusLEDPin, OUTPUT);
+    if(statusLEDPin != -1 ) pinMode(statusLEDPin, OUTPUT);
     //digitalWrite(statusLEDPin, stateLED);
 
     debugout("Ready");
@@ -408,7 +408,7 @@ void flashWifi()
     //digitalWrite(statusLEDPin, stateLED);
     delay(100);
     //stateLED = HIGH;
-    //digitalWrite(statusLEDPin, stateLED);    
+    //digitalWrite(statusLEDPin, stateLED);
   }
   else
   {
@@ -417,7 +417,7 @@ void flashWifi()
   }
 }
 
-void loop() 
+void loop()
 {
   gTimestep = millis() - gTime;
   gTime = millis();
@@ -447,33 +447,33 @@ void loop()
     Serial.println(".");
     */
     if( newval != topics_vals[i] )
-    {    
+    {
       // change the value by publishing the MQTT message, which we'll pick up on receipt to set the LEDs
-      if( newval == 0 ) 
+      if( newval == 0 )
       {
         Serial.print(F("Turn off "));
         Serial.println(topics_pub[i]);
         client.publish(topics_pub[i], "OFF", true);
       }
-      else 
+      else
       {
         Serial.print(F("Turn on "));
-        Serial.println(topics_pub[i]);      
+        Serial.println(topics_pub[i]);
         client.publish(topics_pub[i], "ON", true);
       }
     }
-  }  
+  }
   server.handleClient();
   if( client.connected() )
   {
     if( client.loop() == false )
     {
-      Serial.print(client.state());    
+      Serial.print(client.state());
     }
   }
   else
   {
-      Serial.print(client.state());      
+      Serial.print(client.state());
   }
 
   delay(200);

@@ -25,6 +25,7 @@ void PublishStatus();
  */
 void SetOutput( int _id /* 1-n */, bool _state, bool _toggle=false, int _av=255 );
 bool GetOutput(int _id /* 1-n */);
+void SetLED( int _id /* 1-n */, bool _state, bool _flash=false );
 extern T_Switch switches[NUM_SWITCHES];
 
 // Used for controlling RGB strips:

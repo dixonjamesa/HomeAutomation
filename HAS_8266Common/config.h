@@ -11,10 +11,16 @@
 #ifndef _CONFIG_H_
 #define _CONFIG_H_
 
-#define P_VERSION "0.3.5"
+#define STR_HELPER(x) #x
+#define STR(x) STR_HELPER(x)
+
+#define VER_MAJOR 0
+#define VER_MINOR 4
+#define VER_BUILD 5
+#define P_VERSION STR(VER_MAJOR) "." STR(VER_MINOR) "." STR(VER_BUILD)
 #define P_FULL_VERSION "HAS_Local_" P_VERSION
 
-#define UNIT "TestUpl"           // [Unit] Name of the unit
+#define UNIT "TestThing"           // [Unit] Name of the unit
 
 #define FRIENDLY1 "%s"          // [FriendlyName1] name used by, e.g. HomeAssistant
 #define FRIENDLY2 "%s2"          // [FriendlyName2] name used by, e.g. HomeAssistant
@@ -46,7 +52,7 @@
 #define MQTT_PASS     ""          // [MqttPass] MQTT password
 #define MQTT_CLIENT "%sClient"    // [MqttClient] MQTT client name
 
-#define MQTT_TOPIC "testupl"        // [Topic] (unique) MQTT device topic
+#define MQTT_TOPIC "testthing"        // [Topic] (unique) MQTT device topic
 #define MQTT_GRPTOPIC "allthings" // [GroupTopic] MQTT group topic
 
 // similar mqtt system to the tasmota sonoff system, to keep things consistent:
@@ -86,6 +92,9 @@
 #define ROT2_TOPIC ""             // [Rot2Topic] additional topic to send the rotary value on
 #define ROT3_TOPIC ""             // [Rot3Topic] additional topic to send the rotary value on
 #define ROT4_TOPIC ""             // [Rot4Topic] additional topic to send the rotary value on
+
+#define LED_ONDEFAULT "ON"        // [LED<1-n>On] default value to match topic payload to turn the LED on
+#define LED_FLASHDEFAULT ""       // [LED<1-n>Flash] default value to match topic payload to make the LED flash
 
 #define LED1_TOPIC ""              // [LED1Topic] topic state the LED should reflect
 #define LED2_TOPIC ""              // [LED2Topic]

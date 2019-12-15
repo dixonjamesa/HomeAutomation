@@ -21,7 +21,7 @@
 class T_Switch
 {
   public:
-    T_Switch(int _id=0) { id = _id;}
+    T_Switch(int _id=1) { id = _id;}
     void Setup(int _id, byte _p1,byte _p2,byte _t,const char *_top);
     // call regularly:
     void Update( int _timeStep );
@@ -32,18 +32,19 @@ class T_Switch
     void Off();
     String CmndString();
 
-    byte id;
+    byte id; // STARTS AT 1!!
     // note doesn't support a single pin being on or off, as that puts state into the switch
     // pins assumed to be pullup, so press to pull low
     byte pin1;    // board pin toggle or on
     byte pin2;    // board pin off
     byte type;    // See config.h for SWTYPE_XXX
-    const char *topic; // send this topic as well
 
     bool latch;   // pin1 latch
     bool latch2;  // pin2 latch
-    int delayTimer; // delay for auto off mode
     bool lastState; // last state remembeed for ON/OFF rather than TOGGLE type switch
+
+    const char *topic; // send this topic as well
+    int delayTimer; // delay for auto off mode
 };
 
 #endif //_SWITCH_H_
