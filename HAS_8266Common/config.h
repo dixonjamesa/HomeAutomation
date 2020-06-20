@@ -7,6 +7,13 @@
  * each PARAMETER default values defined here.
  * Can be changed with MQTT commands, as shown in []
  *
+
+DOING:
+  * LOG - option to console or LOG MQTT (see LOG_PREFIX)
+  * REMOTE SWITCHES - 433Mhz triggers for each switch (and ability to set/record 433 number)
+    - so far, added SWTYPE_REMOTE
+  * CONSIDER FLOW - whole flow of cmd/ or state/, switches, power, outputs and LEDs
+
  */
 #ifndef _CONFIG_H_
 #define _CONFIG_H_
@@ -15,8 +22,8 @@
 #define STR(x) STR_HELPER(x)
 
 #define VER_MAJOR 0
-#define VER_MINOR 4
-#define VER_BUILD 5
+#define VER_MINOR 5
+#define VER_BUILD 2
 #define P_VERSION STR(VER_MAJOR) "." STR(VER_MINOR) "." STR(VER_BUILD)
 #define P_FULL_VERSION "HAS_Local_" P_VERSION
 
@@ -32,7 +39,7 @@
 #define FRIENDLY8 "%s8"          // [FriendlyName8] name used by, e.g. HomeAssistant
 
 #define STA_SSID "PrettyFly24"    // [Ssid] Default wifi SSID
-#define STA_PASS "Dixonia123456"       // [Password] Default wifi password
+#define STA_PASS "Dixonia123456"  // [Password] Default wifi password
 
 //TODO!!!!!  #define TELE_PERIOD 5             // [TelePeriod] Time between status updates
 
@@ -52,24 +59,25 @@
 #define MQTT_PASS     ""          // [MqttPass] MQTT password
 #define MQTT_CLIENT "%sClient"    // [MqttClient] MQTT client name
 
-#define MQTT_TOPIC "testthing"        // [Topic] (unique) MQTT device topic
+#define MQTT_TOPIC "testthing"    // [Topic] (unique) MQTT device topic
 #define MQTT_GRPTOPIC "allthings" // [GroupTopic] MQTT group topic
 
 // similar mqtt system to the tasmota sonoff system, to keep things consistent:
 #define SUB_PREFIX   "cmnd"       // [Prefix1] Subscribe to
 #define PUB_PREFIX   "stat"       // [Prefix2] Publish to
 #define INFO_PREFIX  "tele"       // [Prefix3] Publish telemetry data to
+#define LOG_PREFIX   "log"        // [Prefix4] Publish logging info to
 
-// switch behaviour
-// types are: 0 disabled, 1 toggle on press; 2 toggle on release; 3 pushbutton (push on/release off); 4 pin1 on, pin2 off; 5 delayed auto off
-#define SWTYPE_NONE 0
-#define SWTYPE_PRESS 1
-#define SWTYPE_RELEASE 2
-#define SWTYPE_PUSHBUTTON 3
-#define SWTYPE_DUAL 4
-#define SWTYPE_DELAY 5
-#define SWTYPE_ONOFF 6
+// switch types - different switch behaviours
+#define SWTYPE_NONE 0 // disabled
+#define SWTYPE_PRESS 1 // toggle on press
+#define SWTYPE_RELEASE 2 // toggle on release
+#define SWTYPE_PUSHBUTTON 3 // pushbutton (push on/ release off)
+#define SWTYPE_DUAL 4 // pin1 on, pin2 off
+#define SWTYPE_DELAY 5 // on then delayed auto off
+#define SWTYPE_REMOTE 6 // controlled by 433MHz remote signal
 
+#define SWITCHDELAY_DEFAULT 750
 
 #define SW1_TYPE  SWTYPE_NONE     // [Switch1Type]
 #define SW1_TOPIC ""              // [Switch1Topic] additional topic to send messages on
@@ -134,6 +142,7 @@
 // global status
 #define STATUS_LED  -1            // [StatusLED]
 #define RESET_PIN   SW1_PIN1      // [ResetPin]
+#define RF433_PIN   -1            // [RF433Pin]
 // outputs
 #define NUM_OUTS 8
 
@@ -185,6 +194,24 @@
 #define ROT4_PINU   -1            // [Rot4PinU]
 #define ROT4_PIND   -1            // [Rot4PinD]
 
+//RF433 Receiver
+#define RF1_CODE  0           //[RF1Code]
+#define RF2_CODE  0           //[RF2Code]
+#define RF3_CODE  0           //[RF3Code]
+#define RF4_CODE  0           //[RF4Code]
+#define RF5_CODE  0           //[RF5Code]
+#define RF6_CODE  0           //[RF6Code]
+#define RF7_CODE  0           //[RF7Code]
+#define RF8_CODE  0           //[RF8Code]
+
+#define RF1_TOPIC ""          // [RF1Topic]
+#define RF2_TOPIC ""          // [RF2Topic]
+#define RF3_TOPIC ""          // [RF3Topic]
+#define RF4_TOPIC ""          // [RF4Topic]
+#define RF5_TOPIC ""          // [RF5Topic]
+#define RF6_TOPIC ""          // [RF6Topic]
+#define RF7_TOPIC ""          // [RF7Topic]
+#define RF8_TOPIC ""          // [RF8Topic]
 //////////////////////////////////////////////////////////////
 ////  COMPILE-TIME
 

@@ -52,15 +52,12 @@ void HandleONOFFTOGGLE( char* payload, int i /* 1-n */ )
   Serial.println(payload);
   if( !strncmp(payload, "TOGGLE", 6) ) {
     switches[i-1].Toggle();
-    //SetOutput(i, false, true);
   }
   else if( !strncmp(payload, "ON", 2) ) {
     switches[i-1].On();
-    //SetOutput(i, true);
   }
   else if( !strncmp(payload, "OFF", 3) ) {
     switches[i-1].Off();
-    //SetOutput(i, false);
   }
 }
 
@@ -82,6 +79,8 @@ void MQTTcallback(char* _topic, byte* _payload, unsigned int _length)
 
   Serial.print("MQTT in: '");
   Serial.print(messtype);
+  Serial.print(" ");
+  Serial.print(payload);
   Serial.println("'");
 
   // uppercase so it's all case insensitive
@@ -89,10 +88,13 @@ void MQTTcallback(char* _topic, byte* _payload, unsigned int _length)
   {
       messtype[i] = toupper(messtype[i]);
   }
+#if 0
+  // 0.5.2 onwards - keep case of payload for things like topics
   for (i = 0; i < _length; i++)
   {
       payload[i] = toupper(payload[i]);
   }
+#endif
 
   // first check for a match against any of the LEDtopics...
   // in this instance, just update the LED to match the topic status, and return out
@@ -148,7 +150,11 @@ void MQTTcallback(char* _topic, byte* _payload, unsigned int _length)
 
     // only interested in commands, so
     // see if it's a "cmnd" message:
-    if( strncmp (messtype, "CMND", 4 ) ) return;
+    if( strncmp (messtype, "CMND", 4 ) )
+    {
+      Serial.println("Not a CMND, so no action taken.");
+      return;
+    }
     // advance to the good bit
     messtype += 5; originaltopic += 5;
 
@@ -172,9 +178,12 @@ void MQTTcallback(char* _topic, byte* _payload, unsigned int _length)
     {
       //is a switch command
       Serial.print("Switch: ");
-      Serial.println(messtype);
+      Serial.print(messtype);
+      Serial.println(" (no action taken).");
       // Don't do anything with this - the switch is ours!!
-      // just carry on...
+      // So it makes no sense for another device to try to change the actual switch states
+      // Plus this would double trigger the switch, by responding to our own cmnd/switch message
+      // so, just carry on...
       return;
     }
     else
@@ -184,7 +193,7 @@ void MQTTcallback(char* _topic, byte* _payload, unsigned int _length)
         Serial.print("Power: ");
         Serial.print(messtype);
         int id = atoi(messtype+5);
-        Serial.print(" to output ");
+        Serial.print(" to ");
         Serial.println(payload);
         if( _length > 0 )
         {
@@ -197,7 +206,8 @@ void MQTTcallback(char* _topic, byte* _payload, unsigned int _length)
     {
       // rotary command
       Serial.print("Rotary: ");
-      Serial.println(messtype);
+      Serial.print(messtype);
+      Serial.println(" (no action taken).");
       // Don't do anything with this - the rotary is ours!!
       // just carry on...
       return;
@@ -303,6 +313,7 @@ void MQTTcallback(char* _topic, byte* _payload, unsigned int _length)
     {
       // REBOOT command
       Serial.print("Reboot");
+      options.Save();
       ESP.restart();
     }
     else if( !strncmp(messtype, "VERSION", 7) && strlen(messtype) == 7)
@@ -415,6 +426,7 @@ void MQTTcallback(char* _topic, byte* _payload, unsigned int _length)
       }
       sprintf(contents, "{\"STRIPLEN\":\"%d\"}", GetStripLength());
     }
+    #if 0 // now an option in itself
     else if( !strncmp(messtype, "ANIMATION", 9) && strlen(messtype) == 9) // ANIMATION
     {
       if( _length != 0 )
@@ -423,6 +435,7 @@ void MQTTcallback(char* _topic, byte* _payload, unsigned int _length)
       }
       sprintf(contents, "{\"ANIMATION\":\"%d\"}", GetAnimation());
     }
+    #endif
     else if( !strncmp(messtype, "RGB", 3) && strlen(messtype) == 3) // RGB
     {
         int r,g,b,ptr1 = 0, ptr2 = 0;
@@ -561,12 +574,13 @@ void setupAutoDisco( bool _clear )
   if( !_clear && *options.AnalogTrigger() != 0 )
   {
     String data = "{\"name\":\"";
+    data += options.Unit();
     data += "AnalogSense";
     data += "\"";
     data += ",\"stat_t\":\"~/";
     data += options.Prefix3();
     data += "/STATE\"";
-    data += ",\"val_tpl\":\"{{value_json.Analog}}\"";
+    data += ",\"val_tpl\":\"{{value_json.AnalogStat}}\"";
     data += ",\"unit_of_meas\":\" \",\"avty_t\":\"~/";
     data += options.Prefix3();
     data += "/LWT\",\"pl_avail\":\"Online\",\"pl_not_avail\":\"Offline\"";

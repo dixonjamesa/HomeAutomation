@@ -12,7 +12,6 @@
 
 #include <Arduino.h>
 
-
 // switch needs:
 //   - pin
 //   - type - toggle etc.
@@ -27,6 +26,7 @@ class T_Switch
     void Update( int _timeStep );
 
     void Set( const char *_val, bool _out, bool _tog );
+    void Hit();
     void Toggle();
     void On();
     void Off();

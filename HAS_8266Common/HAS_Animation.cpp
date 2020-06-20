@@ -28,7 +28,6 @@ int targetB;
 int bright;
 int targetBright;
 int StripLength;
-int AnimMode;
 
 void SetStripLength(int _c)
 {
@@ -46,14 +45,14 @@ int GetStripLength()
 
 void SetAnimation(int _i)
 {
-  AnimMode = _i%Anim_Max;
+  options.Animation( _i%Anim_Max );
   outR++; // do this to ensure colour is slightly off, so it's guaranteed to update next loop
   // (see output of AnimateColor as used in the UpdateAnimation method )
 }
 
 int GetAnimation()
 {
-    return AnimMode;
+    return options.Animation();
 }
 
 int GetBrightness()
@@ -245,7 +244,7 @@ bool AnimateColor(bool);
 void UpdateAnimation(bool _enabled, int _speed)
 {
   bool change = AnimateColor(_enabled);
-  switch( AnimMode )
+  switch( options.Animation() )
   {
     case Anim_Static:
       if( change) SetPixels(StripLength, bright, outR, outG, outB);
@@ -270,6 +269,17 @@ void UpdateAnimation(bool _enabled, int _speed)
         changeDel = _speed;
         seed += 1;
         if( seed >= StripLength ) seed -= StripLength;
+      }
+      break;
+    case Anim_Twinkle:
+      FadePixels(4);
+      SetPixel(seed, bright, outR, outG, outB);
+      if( --changeDel <= 0 )
+      {
+        changeDel = _speed;
+        seed = random(0,StripLength-1);
+        //seed += 127;
+        //if( seed >= StripLength ) seed -= StripLength;
       }
       break;
   }

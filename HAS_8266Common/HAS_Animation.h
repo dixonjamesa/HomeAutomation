@@ -15,6 +15,7 @@ enum Animations
   Anim_Static = 0,
   Anim_CycleRGB,
   Anim_Bounce,
+  Anim_Twinkle,
   Anim_Max
 };
 

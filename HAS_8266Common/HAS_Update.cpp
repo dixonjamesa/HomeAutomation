@@ -87,15 +87,25 @@ void TestServerUpdate()
       Serial.println("...NO");
     }
   }
+  else
+  {
+    Serial.print("Returned ");
+    Serial.println(httpCode);
+  }
+  client.end();
 }
 
 void TestUpdate()
 {
   if( UpdateNow )
   {
+    char topic[128];
+    sprintf(topic, "%s/%s/updating", options.MqttTopic(), options.Prefix4());
     UpdateNow = false;
     Serial.print("Updating using: ");
     Serial.println(UpdateURL);
+    PSclient.publish(topic, UpdateURL.c_str(), false);
+    //PSclient.loop();
 
     HTTPClient client;
     client.begin(UpdateURL);
@@ -106,10 +116,10 @@ void TestUpdate()
         UpdateURL = UpdateURL.substring(0,UpdateURL.lastIndexOf("/")) + payload;
         Serial.print("Updating to image: ");
         Serial.println(UpdateURL);
-        //int ret = ESPhttpUpdate.update(TheServer.arg(i), 80, payload);
         options.NewVersion(UpdateURL.c_str()); // store the version we're updating to
+        options.Save();
         Updating = true; // tell the (currently running) code that we are updating.
-        ESPhttpUpdate.rebootOnUpdate(true);
+        ESPhttpUpdate.rebootOnUpdate(false);
         int ret = ESPhttpUpdate.update(UpdateURL);
         Serial.println(ret);
         switch(ret)
@@ -122,6 +132,7 @@ void TestUpdate()
             break;
           case HTTP_UPDATE_OK:
             Serial.println("HTTP_UPDATE_OK");
+            ESP.restart();
             break;
         }
     }

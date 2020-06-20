@@ -16,6 +16,7 @@
 #include "HAS_WebServer.h"
 #include "HAS_Animation.h"
 #include "HAS_Update.h"
+#include "HAS_RF433.h"
 
 #include <ESP8266mDNS.h>
 #include <WiFiUdp.h>
@@ -162,7 +163,7 @@ void PublishStatus()
 
   GetRGB(r,g,b);
 
-  //Serial.println("Publishing status");
+  Serial.println("Publishing status");
   sprintf( topic, "%s/%s/STATE", options.MqttTopic(), options.Prefix3());
   sprintf( messageBuffer, "{\"Uptime\":\"%d:%d:%d:%d\",", UT_days, UT_hours, UT_minutes, UT_seconds);
   if( options.OutType(1) != OUTTYPE_NONE ) { sprintf(tbuf, "\"POWER1\":\"%s\",", outputs[0]?"ON":"OFF"); strcat(messageBuffer, tbuf); if( options.OutType(1) == OUTTYPE_RGB ) { sprintf(tbuf, "\"RGB\":\"%d,%d,%d\",", r, g, b); strcat(messageBuffer, tbuf);sprintf(tbuf, "\"BRIGHT\":\"%d\",", GetBrightness()); strcat(messageBuffer, tbuf);sprintf(tbuf, "\"LENGTH\":\"%d/%d\",", GetStripLength(), options.RGBCount()); strcat(messageBuffer, tbuf); }}
@@ -173,7 +174,8 @@ void PublishStatus()
   if( options.OutType(6) != OUTTYPE_NONE ) { sprintf(tbuf, "\"POWER6\":\"%s\",", outputs[5]?"ON":"OFF"); strcat(messageBuffer, tbuf); }
   if( options.OutType(7) != OUTTYPE_NONE ) { sprintf(tbuf, "\"POWER7\":\"%s\",", outputs[6]?"ON":"OFF"); strcat(messageBuffer, tbuf); }
   if( options.OutType(8) != OUTTYPE_NONE ) { sprintf(tbuf, "\"POWER8\":\"%s\",", outputs[7]?"ON":"OFF"); strcat(messageBuffer, tbuf); }
-  if( *options.AnalogTrigger() != 0 ) { sprintf(tbuf, "\"Analog\":\"%d\",", AnalogStatus); strcat(messageBuffer, tbuf); }
+  if( *options.AnalogTrigger() != 0 ) { sprintf(tbuf, "\"AnalogStat\":\"%d\",", AnalogStatus); strcat(messageBuffer, tbuf); }
+  if( *options.AnalogTopic() != 0 ) { sprintf(tbuf, "\"AnalogVal\":\"%d\",", AnalogValue); strcat(messageBuffer, tbuf); }
 
   sprintf(tbuf, "\"Wifi\":{\"AP\":%d,\"SSId\":\"%s\",\"IP\":\"%s\",\"RSSI\":%d,\"APMac\":\"%s\"},\"Mqtt\":\"%d\"}",
                           WiFi.status(), WiFi.SSID().c_str(), WiFi.localIP().toString().c_str(), -WiFi.RSSI(), WiFi.BSSIDstr().c_str(), PSclient.state());
@@ -187,7 +189,7 @@ void PublishStatus()
     Serial.print(strlen(messageBuffer));
     Serial.print("/");
     Serial.print(MQTT_MAX_PACKET_SIZE);
-    Serial.println("... Publish FAILED. Check that MQTT_MAX_PACKET_SIZE is large enough in pubsibclient.h");
+    Serial.println("... Publish FAILED. Check that MQTT_MAX_PACKET_SIZE is large enough in pubsubclient.h");
     // disconnect and try again (the MQtt update callback)...
     PSclient.disconnect();
   }
@@ -211,14 +213,11 @@ void PublishInitInfo()
 
 void ShowPSState()
 {
-  //if(!PSclient.connected())
-  {
-    // states can be found here: https://pubsubclient.knolleary.net/api.html#state
-    Serial.print("MQTT state: ");
-    Serial.print(PSclient.state());
-    Serial.print(" WIFI status=");
-    Serial.println(WiFiStat[WiFi.status()]);
-  }
+  // states can be found here: https://pubsubclient.knolleary.net/api.html#state
+  Serial.print("MQTT state: ");
+  Serial.print(PSclient.state());
+  Serial.print(" WIFI status=");
+  Serial.println(WiFiStat[WiFi.status()]);
 }
 
 /*
@@ -259,11 +258,7 @@ void tryConnectMQTT()
       }
       else
       {
-        Serial.print("failed, rc=");
-        Serial.print(PSclient.state());
-        Serial.print(" WIFI status=");
-        Serial.print(WiFiStat[WiFi.status()]);
-        // states can be found here: https://pubsubclient.knolleary.net/api.html#state
+        ShowPSState();
         Serial.println(" try again in 10 seconds");
         PSclient.disconnect();
       }
@@ -435,11 +430,11 @@ void setupOTA()
   ArduinoOTA.begin();
 }
 
-void testUpdate()
+void testServerUpdate()
 {
   if( WIFI_connected )
   {
-    // test the upload serveer...
+    // test the upload server...
     TestServerUpdate();
   }
 }
@@ -481,6 +476,7 @@ void updateAnalog()
       AnalogStatus = as;
       sprintf(data, "%d", as);
       PSclient.publish(options.AnalogTrigger(), data, false);
+      PublishStatus(); // for Home Assistant also
     }
   }
 }
@@ -500,6 +496,7 @@ void setup()
   options.Begin();
 
   //Serial.setDebugOutput(true);
+
   //output pins type
   for(int i=0; i< NUM_OUTS; i++)
   {
@@ -516,18 +513,13 @@ void setup()
     pinMode(A0, INPUT);
   }
 
-  // Setup the rotary info
+  // Setup rotary pins info
   for(int i=0 ; i < NUM_ROTS ; i++)
   {
     rotaries[i].pinU = options.RotPinU(i+1);
     rotaries[i].pinD = options.RotPinD(i+1);
-  }
-
-  // rotary pins type
-  for(int i=0 ; i < NUM_ROTS ; i++)
-  {
-    p = options.RotPinU(i+1); if( p != -1 ) { pinMode(p, INPUT_PULLUP); Serial.print("Pullup rot pinU: ");Serial.println(p); }
-    p = options.RotPinD(i+1); if( p != -1 ) { pinMode(p, INPUT_PULLUP); Serial.print("Pullup rot pinD: ");Serial.println(p); }
+    p = rotaries[i].pinU; if( p != -1 ) { pinMode(p, INPUT_PULLUP); Serial.print("Pullup rot pinU: ");Serial.println(p); }
+    p = rotaries[i].pinD; if( p != -1 ) { pinMode(p, INPUT_PULLUP); Serial.print("Pullup rot pinD: ");Serial.println(p); }
   }
   if( options.StatusLED() != -1 ) pinMode(options.StatusLED(), OUTPUT);
   if( options.ResetPin() != -1 ) pinMode(options.ResetPin(), INPUT_PULLUP);
@@ -536,6 +528,8 @@ void setup()
   u = options.Unit();
   Serial.print("Start unit name: ");
   Serial.println(u);
+
+  RF433Initialise(options.RF433Pin());
 
   InitPixels();
   SetStripLength(options.RGBCount());
@@ -556,7 +550,7 @@ void setup()
 
   callbackList.push_back(new cbData(tryConnectMQTT, 0, true, 3000));
   callbackList.push_back(new cbData(testWIFI, 0, true, 2000 ));
-  callbackList.push_back(new cbData(testUpdate, 0, true, 10000 ));
+  callbackList.push_back(new cbData(testServerUpdate, 0, true, 10000 ));
   callbackList.push_back(new cbData(updateAnalog, 0, true, 2000 ));
 
   // auto-reconnect is handled by the WiFi class...
@@ -773,6 +767,7 @@ void loopMinutes()
     regularUpdate = 0;
     PublishLWT();
     PublishStatus();
+    options.Save();
   }
 }
 
@@ -794,9 +789,12 @@ void loop()
   if( (gTime/1000) < (((int)millis())/1000) )
   { // crossed a whole second boundary
     loopSeconds();
+    Serial.print(".");
   }
   gTimestep = millis()-gTime;
   gTime = millis();
+
+  RF433Update(gTimestep);
 
   for(std::list<cbData *>::const_iterator iterator = callbackList.begin() ; iterator != callbackList.end() ; ++iterator )
   {
@@ -910,6 +908,7 @@ void loop()
       if( resetTimer > 5000 )
       {
         Serial.println("Resetting due to >5s held reset switch");
+        options.Save();
         ESP.restart();
       }
     }

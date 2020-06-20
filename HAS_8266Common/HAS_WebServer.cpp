@@ -6,15 +6,16 @@
 #include "HAS_Comms.h"
 #include "HAS_Animation.h"
 #include "HAS_Update.h"
+#include "HAS_RF433.h"
 #include <ESP8266WebServer.h>
 #include <ESP8266HTTPClient.h>
 
 char rBuffer[4000];
-void response();
+void endResponse();
 ESP8266WebServer TheServer(80);
 
-const char *HtmlHtml = "<html><head>"
-    "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1,user-scalable=no\" />";
+const char *HtmlHtml = "<html><head>";
+    //"<meta name=\"viewport\" content=\"width=device-width, initial-scale=1,user-scalable=no\" />";
 const char *HtmlStyles = "<style>div,fieldset,input,select{padding:5px;font-size:1em;}"
   "input{width:100%;box-sizing:border-box;-webkit-box-sizing:border-box;-moz-box-sizing:border-box;}"
   "select{width:100%;}"
@@ -33,16 +34,32 @@ const char *HtmlStyles = "<style>div,fieldset,input,select{padding:5px;font-size
   ".q{float:right;text-align:right;}</style>";
 const char *HtmlHtmlClose = "</html>";
 const char *HtmlTitle = "<h1>Miniserve Acess Point</h1><br/>\n";
-const char * HtmlScan = "<a href=\"./wifi?scan=1\"><button>Scan</button></a><br/>";
+const char *HtmlScan = "<a href=\"./wifi?scan=1\"><button>Scan</button></a><br/>";
 const char *HtmlMenu = "<div style=\"display:inline-block;min-width:340px;\">";
 const char *HtmlMenuEnd = "</div>";
-const char *HtmlFooter = "<div style=\"text-align:right;font-size:11px;\"><hr><span style=\"color:#aaa;\">v" P_VERSION " (c) 2019, James Dixon</span></div>";
+const char *HtmlFooter = "<div style=\"text-align:right;font-size:11px;\"><hr><span style=\"color:#aaa;\">v" P_VERSION " (c) 2020, James Dixon</span></div>";
 /*
- * Put the module name as a title
+ * Start the web response, and
+ * put the module name as a title
  */
+void HtmlModule(const char *_title)
+{
+  Serial.println(" a");
+  TheServer.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  Serial.println(" b");
+  sprintf(rBuffer, "%s<title>%s - %s</title></head>%s<body><div style=\"text-align:center;\"><h2>%s</h2></div>", HtmlHtml, options.Unit(), _title, HtmlStyles, options.Unit());
+  //TheServer.send(200, "text/html", "");
+  //TheServer.sendContent_P(rBuffer);
+  Serial.println(rBuffer);
+  //TheServer.send(200, "text/html", rBuffer);
+  Serial.println(" d");
+  TheServer.sendContent(rBuffer);
+  Serial.println(" e");
+}
 void HtmlModule(char *_to, const char *_title)
 {
-  sprintf(_to, "%s<title>%s - %s</title></head>%s<body><div style=\"text-align:center;\"><h2>%s</h2></div>", HtmlHtml, options.Unit(), _title, HtmlStyles, options.Unit());
+  //sprintf(_to, "%s<title>%s - %s</title></head>%s<body><div style=\"text-align:center;\"><h2>%s</h2></div>", HtmlHtml, options.Unit(), _title, ""/*HtmlStyles*/, options.Unit());
+  sprintf(_to, "%s<title>%s - %s</title></head><body><div style=\"text-align:center;\"><h2>%s</h2></div>", HtmlHtml, options.Unit(), _title, options.Unit());
 }
 
 /*
@@ -106,6 +123,38 @@ void HtmlParamParamSm( char*_to, const char *_title, const char *_value, const c
   strcat(_to, _value);
   strcat(_to, "\" ");
   strcat(_to, "></td></tr>");
+}
+
+void AddFormButton(
+  char *_to,
+  const char *_title,
+  const char *_name
+)
+{
+  strcat(_to, "<button class=\"button bred\" name=\"");
+  strcat(_to, _name);
+  strcat(_to, "\" type=\"submit\">");
+  strcat(_to, _title);
+  strcat(_to, "</button>");
+}
+
+/*
+ * Smaller footprint param editor (all horz) with button
+ */
+void HtmlParamParamSmButton( char*_to, const char *_title, const char *_value, const char *_id, const char *_name, const char *_buttitle, const char *_butname)
+{
+  strcat(_to, "<tr><td><b>");
+  strcat(_to, _title);
+  strcat(_to, ":&nbsp;</b>");
+  strcat(_to, "</td><td><input id=\"");
+  strcat(_to, _id);
+  strcat(_to, "\" name=\"");
+  strcat(_to, _name);
+  strcat(_to, "\" value=\"");
+  strcat(_to, _value);
+  strcat(_to, "\" ></td><td>");
+  AddFormButton(_to, _buttitle, _butname);
+  strcat(_to, "</td></tr>");
 }
 
 char typeList[512];
@@ -196,7 +245,13 @@ char *HtmlParamBoxEnd = "</form></fieldset>";
 /*
  * Add a button to the html
  */
-void AddButton(char *_to, const char *_name, const char *_path, const char *_tags = NULL, const char *_class= NULL, const char *_inputs = NULL)
+void AddButton(
+  char *_to,
+  const char *_name,
+  const char *_path,
+  const char *_tags = NULL,
+  const char *_class= NULL,
+  const char *_inputs = NULL)
 {
   strcat(_to, "<form id=\"tform\" action=\"");
   strcat(_to, _path);
@@ -253,14 +308,17 @@ void handleReboot()
 
   setupAutoDisco(true);
   Serial.println("Auto discovery reset");
-  HtmlModule(rBuffer, "Reboot");
-  strcat(rBuffer, HtmlMenu);
+  HtmlModule("Reboot");
 
+  sprintf(rBuffer, HtmlMenu);
   strcat(rBuffer, "<div>Module will now reboot...</div>");
   strcat(rBuffer, "<br>");
   AddButton(rBuffer, "Main Menu", "/");
   strcat(rBuffer, HtmlMenuEnd);
-  response();
+  TheServer.sendContent(rBuffer);
+
+  endResponse();
+  options.Save();
   Serial.println("Waiting 5s...");
   delay(5000);
   Serial.println("Resetting...");
@@ -359,33 +417,23 @@ void HtmlRotary( char *_to, const char *_name, bool _disabled)
   strcat(_to, "</td></tr></table></div>");
 }
 
-/*
- * Handle switch message via web interface
- */
-void WebSwitch(int id)
+const char boloxP[] PROGMEM = "<p>12345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890</p>";
+const char bolox[] = "<p>12345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890</p>";
+
+void handleTest()
 {
-  switch(switches[id].type)
-  {
-    case SWTYPE_NONE:
-    case SWTYPE_PRESS:
-    case SWTYPE_RELEASE:
-      switches[id].Toggle();
-      break;
-    case SWTYPE_PUSHBUTTON:
-      switches[id].On();
-      switches[id].Off();
-      break;
-    case SWTYPE_DUAL:
-    case SWTYPE_DELAY:
-      switches[id].On();
-      break;
-  }
+  Serial.println("Serving LongTest");
+
+  HtmlModule(rBuffer, "Test Page");
+  strcat(rBuffer, bolox);
+  endResponse();
 }
+
 void handleRoot()
 {
   Serial.println("Serving /");
-  HtmlModule(rBuffer, "Main Menu");
-  strcat(rBuffer, HtmlMenu);
+  HtmlModule("Main Menu");
+  sprintf(rBuffer, HtmlMenu);
 
   if(TheServer.args() > 0 )
   {
@@ -400,14 +448,14 @@ void handleRoot()
       Serial.print(": ");
       Serial.println(TheServer.arg(i));
       if( TheServer.argName(i) == "StripLength") SetStripLength(atoi(TheServer.arg(i).c_str()));
-      if( TheServer.argName(i) == "Switch1")      WebSwitch(0);
-      else if( TheServer.argName(i) == "Switch2") WebSwitch(1);
-      else if( TheServer.argName(i) == "Switch3") WebSwitch(2);
-      else if( TheServer.argName(i) == "Switch4") WebSwitch(3);
-      else if( TheServer.argName(i) == "Switch5") WebSwitch(4);
-      else if( TheServer.argName(i) == "Switch6") WebSwitch(5);
-      else if( TheServer.argName(i) == "Switch7") WebSwitch(6);
-      else if( TheServer.argName(i) == "Switch8") WebSwitch(7);
+      if( TheServer.argName(i) == "Switch1")      switches[0].Hit();
+      else if( TheServer.argName(i) == "Switch2") switches[1].Hit();
+      else if( TheServer.argName(i) == "Switch3") switches[2].Hit();
+      else if( TheServer.argName(i) == "Switch4") switches[3].Hit();
+      else if( TheServer.argName(i) == "Switch5") switches[4].Hit();
+      else if( TheServer.argName(i) == "Switch6") switches[5].Hit();
+      else if( TheServer.argName(i) == "Switch7") switches[6].Hit();
+      else if( TheServer.argName(i) == "Switch8") switches[7].Hit();
       else if( TheServer.argName(i) == "Rotary1")
       {
         sprintf(topic, "%s/%s/ROTARY1", options.MqttTopic(), options.Prefix1());
@@ -456,6 +504,9 @@ void handleRoot()
   strcat(rBuffer, "</tr></table>");
   // now the buttons:
   strcat(rBuffer, "<br>");
+  TheServer.sendContent(rBuffer);
+  *rBuffer = 0;
+
   //AddButton(rBuffer, "Status", "status");
   AddButton(rBuffer, "Configuration", "config");
   AddButton(rBuffer, "Information", "info");
@@ -464,16 +515,18 @@ void handleRoot()
   AddButton(rBuffer, "Restart", "/reboot", "onsubmit=\"return confirm('Confirm Restart');\"", "button bred");
   Serial.println("Contents done");
   strcat(rBuffer, HtmlMenuEnd);
-  response();
+  TheServer.sendContent(rBuffer);
+  endResponse();
 }
 
 void handleUpdate()
 {
   Serial.println("Serving /update");
-  HtmlModule(rBuffer, "Update");
-  strcat(rBuffer, HtmlMenu);
+  HtmlModule("Update");
+  sprintf(rBuffer, HtmlMenu);
   if(TheServer.args() > 0 )
   {
+    bool restart = false;
     // args have come back, so let's apply them...
     for(int i=0 ; i < TheServer.args() ; i++)
     {
@@ -491,10 +544,23 @@ void handleUpdate()
         strcat(rBuffer, "</p><br>");
         AddButton(rBuffer, "Main Menu", "/");
         strcat(rBuffer, HtmlMenuEnd);
-        response();
+        TheServer.sendContent(rBuffer);
+
+        endResponse();
         return;
       }
+      else
+      if( TheServer.argName(i) == "saverestart" )
+      {
+        restart = true;
+      }
     }
+    if( restart )
+    {
+      // restart the unit:
+      handleReboot();
+    }
+
   }
 
   HtmlParamBoxStart(rBuffer, "Update Params", "./update");
@@ -506,14 +572,17 @@ void handleUpdate()
   strcat(rBuffer, "<br><br>");
   AddButton(rBuffer, "Main Menu", "/");
   strcat(rBuffer, HtmlMenuEnd);
-  response();
+
+  TheServer.sendContent(rBuffer);
+  endResponse();
 }
 
 void handleInfo()
 {
   Serial.println("Serving /info");
-  HtmlModule(rBuffer, "Information");
-  strcat(rBuffer, HtmlMenu);
+  HtmlModule("Information");
+
+  sprintf(rBuffer, HtmlMenu);
   strcat(rBuffer, "<div><table style=\"width:100%;\"><tbody>");
   AddTableRow(rBuffer, "Web Name", options.WebNameParsed());
   AddTableRow(rBuffer, "SSID (RSSI)", (WiFi.SSID() + " ("+WiFi.RSSI()+"%)").c_str());
@@ -536,28 +605,82 @@ void handleInfo()
   AddTableRow(rBuffer, "Program Size", tb);
   sprintf(tb,"%d", ESP.getFreeSketchSpace() / 1024);
   AddTableRow(rBuffer, "Free Program Space", tb);
+  AddTableRow(rBuffer, "Version", P_FULL_VERSION);
+  AddTableRow(rBuffer, "Server", options.UpdateServer());
+  AddTableRow(rBuffer, "Last d/l Version", options.Version());
 
   strcat(rBuffer, "</tbody></table>");
   AddButton(rBuffer, "Main Menu", "/");
   strcat(rBuffer, HtmlMenuEnd);
-  response();
+  TheServer.sendContent(rBuffer);
+
+  endResponse();
+}
+
+void handleRF433()
+{
+  char tbuf[4], n1buf[16], n2buf[16], n3buf[16], n4buf[16], inputs[128];
+
+  Serial.println("Serving /config/RF433");
+  HtmlModule("RF433 Receiver");
+
+  if(TheServer.args() > 0 )
+  {
+    // args have come back, so let's apply them...
+    for(int i=0 ; i < TheServer.args() ; i++)
+    {
+      if( TheServer.argName(i) == "Assign1" ) RF433AssignNextReceived(1);
+      if( TheServer.argName(i) == "Assign2" ) RF433AssignNextReceived(2);
+      if( TheServer.argName(i) == "Assign3" ) RF433AssignNextReceived(3);
+      if( TheServer.argName(i) == "Assign4" ) RF433AssignNextReceived(4);
+      if( TheServer.argName(i) == "Assign5" ) RF433AssignNextReceived(5);
+      if( TheServer.argName(i) == "Assign6" ) RF433AssignNextReceived(6);
+      if( TheServer.argName(i) == "Assign7" ) RF433AssignNextReceived(7);
+      if( TheServer.argName(i) == "Assign8" ) RF433AssignNextReceived(8);
+    }
+  }
+  handlePageArgs( true );
+
+  sprintf(rBuffer, HtmlMenu);
+
+  HtmlParamBoxStart(rBuffer, "RF433 Signals", "./rf433");
+
+  strcat(rBuffer, ParamSmTableStart);
+  for( int i=0 ; i < NUM_SWITCHES ; i++ )
+  {
+    sprintf(n1buf,"RF%d Code", i+1);
+    sprintf(n2buf,"Set", i+1);
+    sprintf(n3buf,"RF%dCode", i+1);
+    sprintf(n4buf,"Assign%d", i+1);
+    sprintf(tbuf, "%d", options.RFCode(i+1));
+    HtmlParamParamSmButton(rBuffer, n1buf, tbuf, "", n3buf, n2buf, n4buf);
+  }
+  strcat(rBuffer, ParamSmTableEnd);
+  strcat(rBuffer, HtmlSaveButton);
+  strcat(rBuffer, HtmlParamBoxEnd);
+  strcat(rBuffer, "<br>");
+  AddButton(rBuffer, "Configuration", "/config");
+  strcat(rBuffer, HtmlMenuEnd);
+  TheServer.sendContent(rBuffer);
+  *rBuffer = 0;
+  endResponse();
 }
 
 void handleSwitches1()
 {
+  char n1buf[16], n2buf[16], n3buf[16], n4buf[16];
   Serial.println("Serving /config/sw1");
-  HtmlModule(rBuffer,"Switches1");
+  HtmlModule("Switches1");
 
   handlePageArgs( true );
 
-  strcat(rBuffer, HtmlMenu);
+  sprintf(rBuffer, HtmlMenu);
 
   HtmlParamBoxStart(rBuffer, "Switches", "./sw1");
 
   strcat(rBuffer, ParamSmTableStart);
   for( int i=0 ; i < 4 ; i++ )
   {
-    char n1buf[16], n2buf[16], n3buf[16], n4buf[16];
     sprintf(n1buf,"S%d Type", i+1);
     sprintf(n2buf,"S%d Topic", i+1);
     sprintf(n3buf,"Sw%dType", i+1);
@@ -571,24 +694,26 @@ void handleSwitches1()
   strcat(rBuffer, "<br>");
   AddButton(rBuffer, "Configuration", "/config");
   strcat(rBuffer, HtmlMenuEnd);
-  response();
+  TheServer.sendContent(rBuffer);
+  *rBuffer = 0;
+  endResponse();
 }
 
 void handleSwitches2()
 {
+  char n1buf[16], n2buf[16], n3buf[16], n4buf[16];
   Serial.println("Serving /config/sw2");
-  HtmlModule(rBuffer,"Switches2");
+  HtmlModule("Switches2");
 
   handlePageArgs( true );
 
-  strcat(rBuffer, HtmlMenu);
+  sprintf(rBuffer, HtmlMenu);
 
   HtmlParamBoxStart(rBuffer, "Switches", "./sw2");
 
   strcat(rBuffer, ParamSmTableStart);
   for( int i=4 ; i < NUM_SWITCHES ; i++ )
   {
-    char n1buf[16], n2buf[16], n3buf[16], n4buf[16];
     sprintf(n1buf,"S%d Type", i+1);
     sprintf(n2buf,"S%d Topic", i+1);
     sprintf(n3buf,"Sw%dType", i+1);
@@ -602,17 +727,19 @@ void handleSwitches2()
   strcat(rBuffer, "<br>");
   AddButton(rBuffer, "Configuration", "/config");
   strcat(rBuffer, HtmlMenuEnd);
-  response();
+  TheServer.sendContent(rBuffer);
+  *rBuffer = 0;
+  endResponse();
 }
 
 void handleRotaries()
 {
   Serial.println("Serving /config/rot");
-  HtmlModule(rBuffer,"Rotaries");
+  HtmlModule("Rotaries");
 
   handlePageArgs( true );
 
-  strcat(rBuffer, HtmlMenu);
+  sprintf(rBuffer, HtmlMenu);
 
   HtmlParamBoxStart(rBuffer, "Rotary Params", "./rot");
 
@@ -633,19 +760,21 @@ void handleRotaries()
   strcat(rBuffer, "<br>");
   AddButton(rBuffer, "Configuration", "/config");
   strcat(rBuffer, HtmlMenuEnd);
+  TheServer.sendContent(rBuffer);
+  *rBuffer = 0;
 
-  response();
+  endResponse();
 }
 
 void handleAnalog()
 {
   char tbuf[16],tb2[24];
   Serial.println("Serving /config/analog");
-  HtmlModule(rBuffer,"Analog");
+  HtmlModule("Analog");
 
   handlePageArgs( true );
 
-  strcat(rBuffer, HtmlMenu);
+  sprintf(rBuffer, HtmlMenu);
 
   HtmlParamBoxStart(rBuffer, "Analog Params", "./analog");
 
@@ -668,19 +797,52 @@ void handleAnalog()
   strcat(rBuffer, "<br>");
   AddButton(rBuffer, "Configuration", "/config");
   strcat(rBuffer, HtmlMenuEnd);
+  TheServer.sendContent(rBuffer);
+  *rBuffer = 0;
 
-  response();
+  endResponse();
+}
+
+void handleAnim()
+{
+  char tbuf[16];
+  Serial.println("Serving /config/anim");
+  HtmlModule("Anim");
+
+  handlePageArgs( true );
+
+  sprintf(rBuffer, HtmlMenu);
+
+  HtmlParamBoxStart(rBuffer, "Anim Params", "./anim");
+
+  strcat(rBuffer, ParamSmTableStart);
+
+  sprintf(tbuf, "%d", options.Animation());
+  HtmlParamParamSm(rBuffer, "Animation", tbuf, "", "Animation");
+  sprintf(tbuf, "%d", options.AnimSpeed());
+  HtmlParamParamSm(rBuffer, "Speed", tbuf, "", "AnimSpeed");
+
+  strcat(rBuffer, ParamSmTableEnd);
+  strcat(rBuffer, HtmlSaveButton);
+  strcat(rBuffer, HtmlParamBoxEnd);
+  strcat(rBuffer, "<br>");
+  AddButton(rBuffer, "Configuration", "/config");
+  strcat(rBuffer, HtmlMenuEnd);
+  TheServer.sendContent(rBuffer);
+  *rBuffer = 0;
+
+  endResponse();
 }
 
 void handleLEDs1()
 {
   char tbuf[16];
   Serial.println("Serving /config/led1");
-  HtmlModule(rBuffer, "LEDs1");
+  HtmlModule("LEDs1");
 
   handlePageArgs( true );
 
-  strcat(rBuffer, HtmlMenu);
+  sprintf(rBuffer, HtmlMenu);
 
   HtmlParamBoxStart(rBuffer, "LED Params", "./led1");
 
@@ -702,6 +864,9 @@ void handleLEDs1()
     sprintf(n2buf,"LED%dFlash", i+1);
     HtmlParamParamSm(rBuffer, n1buf, options.LEDFlash(i+1), "", n2buf);
   }
+  TheServer.sendContent(rBuffer);
+  *rBuffer = 0;
+
   sprintf(tbuf, "%d", options.RGBCount());
   HtmlParamParamSm(rBuffer, "RGB LED Count", tbuf, "", "RGBCount");
 
@@ -711,19 +876,21 @@ void handleLEDs1()
   strcat(rBuffer, "<br>");
   AddButton(rBuffer, "Configuration", "/config");
   strcat(rBuffer, HtmlMenuEnd);
+  TheServer.sendContent(rBuffer);
+  *rBuffer = 0;
 
-  response();
+  endResponse();
 }
 
 void handleLEDs2()
 {
   char tbuf[16];
   Serial.println("Serving /config/led2");
-  HtmlModule(rBuffer,"LEDs2");
+  HtmlModule("LEDs2");
 
   handlePageArgs( true );
 
-  strcat(rBuffer, HtmlMenu);
+  sprintf(rBuffer, HtmlMenu);
 
   HtmlParamBoxStart(rBuffer, "LED Params", "./led2");
 
@@ -745,6 +912,9 @@ void handleLEDs2()
     sprintf(n2buf,"LED%dFlash", i+1);
     HtmlParamParamSm(rBuffer, n1buf, options.LEDFlash(i+1), "", n2buf);
   }
+  TheServer.sendContent(rBuffer);
+  *rBuffer = 0;
+
   sprintf(tbuf, "%d", options.RGBCount());
   HtmlParamParamSm(rBuffer, "RGB LED Count", tbuf, "", "RGBCount");
 
@@ -754,19 +924,21 @@ void handleLEDs2()
   strcat(rBuffer, "<br>");
   AddButton(rBuffer, "Configuration", "/config");
   strcat(rBuffer, HtmlMenuEnd);
+  TheServer.sendContent(rBuffer);
+  *rBuffer = 0;
 
-  response();
+  endResponse();
 }
 
 void handleModule()
 {
   char tbuf[4];
   Serial.println("Serving /config/module");
-  HtmlModule(rBuffer,"Module");
+  HtmlModule("Module");
 
   handlePageArgs( true );
 
-  strcat(rBuffer, HtmlMenu);
+  sprintf(rBuffer, HtmlMenu);
 
   HtmlParamBoxStart(rBuffer, "Module Params", "./module");
   HtmlParamParam(rBuffer, "Name", options.Unit(), options.Unit(), "unit", "Unit", NULL);
@@ -789,19 +961,21 @@ void handleModule()
   strcat(rBuffer, "<br>");
   AddButton(rBuffer, "Configuration", "/config");
   strcat(rBuffer, HtmlMenuEnd);
+  TheServer.sendContent(rBuffer);
+  *rBuffer = 0;
 
-  response();
+  endResponse();
 }
 
 void handleHW()
 {
   char tbuf[4];
   Serial.println("Serving /config/hw");
-  HtmlModule(rBuffer,"Hardware");
+  HtmlModule("Hardware");
 
   handlePageArgs( true );
 
-  strcat(rBuffer, HtmlMenu);
+  sprintf(rBuffer, HtmlMenu);
 
   HtmlParamBoxStart(rBuffer, "Hardware", "./hw");
   strcat(rBuffer, ParamSmTableStart);
@@ -816,6 +990,7 @@ void handleHW()
     sprintf(tbuf, "%d", options.SwPin2(i+1)); HtmlParamParamSm(rBuffer, n1buf, tbuf, "", n2buf);
   }
 
+  sprintf(tbuf, "%d", options.RF433Pin()); HtmlParamParamSm(rBuffer, "RF433 Pin", tbuf, "", "RF433Pin");
   sprintf(tbuf, "%d", options.ResetPin()); HtmlParamParamSm(rBuffer, "Reset Pin", tbuf, "", "ResetPin");
   sprintf(tbuf, "%d", options.StatusLED()); HtmlParamParamSm(rBuffer, "Status LED", tbuf, "", "StatusLED");
   sprintf(tbuf, "%d", options.InvertLED()); HtmlParamParamSm(rBuffer, "Invert LED", tbuf, "", "InvertLED");
@@ -826,19 +1001,21 @@ void handleHW()
   strcat(rBuffer, "<br>");
   AddButton(rBuffer, "Configuration", "/config");
   strcat(rBuffer, HtmlMenuEnd);
+  TheServer.sendContent(rBuffer);
+  *rBuffer = 0;
 
-  response();
+  endResponse();
 }
 
 void handleHW2()
 {
   char tbuf[4];
   Serial.println("Serving /config/hw2");
-  HtmlModule(rBuffer,"Hardware2");
+  HtmlModule("Hardware2");
 
   handlePageArgs( true );
 
-  strcat(rBuffer, HtmlMenu);
+  sprintf(rBuffer, HtmlMenu);
 
   HtmlParamBoxStart(rBuffer, "Hardware", "./hw");
   strcat(rBuffer, ParamSmTableStart);
@@ -870,21 +1047,26 @@ void handleHW2()
   strcat(rBuffer, "<br>");
   AddButton(rBuffer, "Configuration", "/config");
   strcat(rBuffer, HtmlMenuEnd);
+  TheServer.sendContent(rBuffer);
+  *rBuffer = 0;
 
-  response();
+  endResponse();
 }
 
 void handleConfig()
 {
   Serial.println("Serving /config");
-  HtmlModule(rBuffer,"Config");
-  strcat(rBuffer, HtmlMenu);
+  HtmlModule("Config");
+  sprintf(rBuffer, HtmlMenu);
   AddButton(rBuffer, "Module", "config/module");
+  #if 0
   AddButton(rBuffer, "Switches1", "config/sw1");
   AddButton(rBuffer, "Switches2", "config/sw2");
+  AddButton(rBuffer, "RF433", "config/rf433");
   AddButton(rBuffer, "Rotaries", "config/rot");
   AddButton(rBuffer, "LEDs1", "config/led1");
   AddButton(rBuffer, "LEDs2", "config/led2");
+  AddButton(rBuffer, "Animation", "config/anim");
   AddButton(rBuffer, "WiFi", "config/wifi");
   AddButton(rBuffer, "MQTT", "config/mqtt");
   AddButton(rBuffer, "Analog", "config/analog");
@@ -892,19 +1074,22 @@ void handleConfig()
   AddButton(rBuffer, "Hardware2", "config/hw2");
   strcat(rBuffer, "<br>");
   AddButton(rBuffer, "Main Menu", "/");
+  #endif
   strcat(rBuffer, HtmlMenuEnd);
-  response();
+  TheServer.sendContent(rBuffer);
+  *rBuffer = 0;
+  endResponse();
 }
 
 void handleMQTT()
 {
   char tb[16];
   Serial.println("Serving /config/mqtt");
-  HtmlModule(rBuffer,"Mqtt");
+  HtmlModule("Mqtt");
 
   handlePageArgs( true );
 
-  strcat(rBuffer, HtmlMenu);
+  sprintf(rBuffer, HtmlMenu);
 
   HtmlParamBoxStart(rBuffer, "Mqtt Params", "./mqtt");
   HtmlParamParam(rBuffer, "Host", options.MqttHost(), options.MqttHost(), "host", "MqttHost", NULL);
@@ -920,8 +1105,10 @@ void handleMQTT()
   strcat(rBuffer, "<br>");
   AddButton(rBuffer, "Configuration", "/config");
   strcat(rBuffer, HtmlMenuEnd);
+  TheServer.sendContent(rBuffer);
+  *rBuffer = 0;
 
-  response();
+  endResponse();
 }
 
 /*
@@ -946,9 +1133,9 @@ void handleWifi()
   // pass page args back to options
   handlePageArgs( true );
 
-  HtmlModule(rBuffer,"WiFi");
+  HtmlModule("WiFi");
 
-  strcat(rBuffer, "<script>function ei(i){return document.getElementById(i);}function c(l){ei('ss1').value=l.innerText||l.textContent;ei('pwd1').focus();}</script>");
+  sprintf(rBuffer, "<script>function ei(i){return document.getElementById(i);}function c(l){ei('ss1').value=l.innerText||l.textContent;ei('pwd1').focus();}</script>");
   strcat(rBuffer, HtmlScan);
   strcat(rBuffer, "<p>");
   strcat(rBuffer, WIFI_status);
@@ -981,36 +1168,76 @@ void handleWifi()
   strcat(rBuffer, "<br>");
   AddButton(rBuffer, "Configuration", "/config");
   strcat(rBuffer, HtmlMenuEnd);
+  TheServer.sendContent(rBuffer);
+  *rBuffer = 0;
 
-  response();
+  endResponse();
 }
-
 
 ///
 // HTML general response
 ///
-void response()
+void preResponse()
 {
   strcat(rBuffer, HtmlFooter);
   strcat(rBuffer, "</body>");
   strcat(rBuffer,  HtmlHtmlClose);
   Serial.print("Serving ");
   Serial.print(strlen(rBuffer));
-  Serial.print(" bytes data...");
+  Serial.println(" bytes data...");
+  Serial.println("CONTENT:");
+  Serial.println(rBuffer);
 
-  TheServer.setContentLength(strlen(rBuffer));
-  char a = rBuffer[2000];
-  rBuffer[2000]=0;
+  if(strlen(rBuffer) < 2500 )
+  {
+    TheServer.setContentLength(strlen(rBuffer));
+    TheServer.send(200, "text/html", rBuffer);
+  }
+  else
+  {
+    TheServer.setContentLength(CONTENT_LENGTH_UNKNOWN);
+    char a = rBuffer[2000];
+    rBuffer[2000]=0;
+    TheServer.send(200, "text/html", "");
+    TheServer.sendContent(rBuffer);
+    rBuffer[2000] = a;
+    if(strlen(rBuffer) > 2000 )
+    {
+      Serial.print(" done 2k...");
+      TheServer.sendContent(rBuffer+2000);
+    }
+    TheServer.sendContent("");
+  }
+  Serial.println(" Done");
+}
+
+///
+// HTML general response
+///
+void endResponse()
+{
+  strcat(rBuffer, HtmlFooter);
+  strcat(rBuffer, "</body>");
+  strcat(rBuffer,  HtmlHtmlClose);
+  Serial.print("Serving ");
+  Serial.print(strlen(rBuffer));
+  Serial.println(" bytes data...");
+  Serial.print("CONTENT:");
+  Serial.println(rBuffer);
+
+  //TheServer.setContentLength(strlen(rBuffer));
   TheServer.send(200, "text/html", rBuffer);
-  rBuffer[2000] = a;
-  if(strlen(rBuffer) > 2000 )
-    TheServer.sendContent(rBuffer+2000);
+  //TheServer.send(200, "text/plain", "uc you");
+  //TheServer.sendContent(rBuffer);
+  //TheServer.sendContent("");
+
   Serial.println(" Done");
 }
 
 void InitWebServer()
 {
   TheServer.on("/", handleRoot);
+  TheServer.on("/test", handleTest);
   TheServer.on("/reboot", handleReboot);
   TheServer.on("/update", handleUpdate);
   TheServer.on("/info", handleInfo);
@@ -1021,11 +1248,13 @@ void InitWebServer()
   TheServer.on("/config/rot", handleRotaries);
   TheServer.on("/config/led1", handleLEDs1);
   TheServer.on("/config/led2", handleLEDs2);
+  TheServer.on("/config/anim", handleAnim);
   TheServer.on("/config/wifi", handleWifi);
   TheServer.on("/config/mqtt", handleMQTT);
   TheServer.on("/config/analog", handleAnalog);
   TheServer.on("/config/hw", handleHW);
   TheServer.on("/config/hw2", handleHW2);
+  TheServer.on("/config/rf433", handleRF433);
   TheServer.begin();
 }
 

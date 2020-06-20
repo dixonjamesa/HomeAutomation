@@ -67,7 +67,6 @@ Opt *FindOption(const char *_key)
   }
   return NULL;
 }
-
 char sbuffer[4096];
 
 void Option::Begin()
@@ -176,42 +175,42 @@ Option::Option()
   swPin1Defaults[0] =  SW1_PIN1;
   swPin2Defaults[0] =  SW1_PIN2;
   swTypeDefaults[0] =  SW1_TYPE;
-  swDelayDefaults[0] =  500;
+  swDelayDefaults[0] = SWITCHDELAY_DEFAULT;
   swTopicDefaults[0] = SW1_TOPIC;
   swPin1Defaults[1] =  SW2_PIN1;
   swPin2Defaults[1] =  SW2_PIN2;
   swTypeDefaults[1] =  SW2_TYPE;
-  swDelayDefaults[1] =  500;
+  swDelayDefaults[1] =  SWITCHDELAY_DEFAULT;
   swTopicDefaults[1] = SW2_TOPIC;
   swPin1Defaults[2] =  SW3_PIN1;
   swPin2Defaults[2] =  SW3_PIN2;
   swTypeDefaults[2] =  SW3_TYPE;
-  swDelayDefaults[2] =  500;
+  swDelayDefaults[2] =  SWITCHDELAY_DEFAULT;
   swTopicDefaults[2] = SW3_TOPIC;
   swPin1Defaults[3] =  SW4_PIN1;
   swPin2Defaults[3] =  SW4_PIN2;
   swTypeDefaults[3] =  SW4_TYPE;
-  swDelayDefaults[3] =  500;
+  swDelayDefaults[3] =  SWITCHDELAY_DEFAULT;
   swTopicDefaults[3] = SW4_TOPIC;
   swPin1Defaults[4] =  SW5_PIN1;
   swPin2Defaults[4] =  SW5_PIN2;
   swTypeDefaults[4] =  SW5_TYPE;
-  swDelayDefaults[4] =  500;
+  swDelayDefaults[4] =  SWITCHDELAY_DEFAULT;
   swTopicDefaults[4] = SW5_TOPIC;
   swPin1Defaults[5] =  SW6_PIN1;
   swPin2Defaults[5] =  SW6_PIN2;
   swTypeDefaults[5] =  SW6_TYPE;
-  swDelayDefaults[5] =  500;
+  swDelayDefaults[5] =  SWITCHDELAY_DEFAULT;
   swTopicDefaults[5] = SW6_TOPIC;
   swPin1Defaults[6] =  SW7_PIN1;
   swPin2Defaults[6] =  SW7_PIN2;
   swTypeDefaults[6] =  SW7_TYPE;
-  swDelayDefaults[6] =  500;
+  swDelayDefaults[6] =  SWITCHDELAY_DEFAULT;
   swTopicDefaults[6] = SW7_TOPIC;
   swPin1Defaults[7] =  SW8_PIN1;
   swPin2Defaults[7] =  SW8_PIN2;
   swTypeDefaults[7] =  SW8_TYPE;
-  swDelayDefaults[7] =  500;
+  swDelayDefaults[7] =  SWITCHDELAY_DEFAULT;
   swTopicDefaults[7] = SW8_TOPIC;
 
   rotUDefaults[0] = ROT1_PINU;
@@ -236,6 +235,22 @@ Option::Option()
   friendlyDefaults[6] = FRIENDLY7;
   friendlyDefaults[7] = FRIENDLY8;
 
+  rfCodes[0] = RF1_CODE;
+  rfCodes[1] = RF2_CODE;
+  rfCodes[2] = RF3_CODE;
+  rfCodes[3] = RF4_CODE;
+  rfCodes[4] = RF5_CODE;
+  rfCodes[5] = RF6_CODE;
+  rfCodes[6] = RF7_CODE;
+  rfCodes[7] = RF8_CODE;
+  rfTopicDefaults[0] = RF1_TOPIC;
+  rfTopicDefaults[1] = RF2_TOPIC;
+  rfTopicDefaults[2] = RF3_TOPIC;
+  rfTopicDefaults[3] = RF4_TOPIC;
+  rfTopicDefaults[4] = RF5_TOPIC;
+  rfTopicDefaults[5] = RF6_TOPIC;
+  rfTopicDefaults[6] = RF7_TOPIC;
+  rfTopicDefaults[7] = RF8_TOPIC;
 }
 
 // Save all options to SPIFFS
@@ -291,7 +306,6 @@ const char *Option::GetOption(const char *_opt, const char *_default)
     //Serial.print("Not found option ");
     //Serial.println(_opt);
     o = new Opt(_opt, _default);
-    Save();
   }
   //Serial.print("Returning value ");
   //Serial.println(o->Value());
@@ -305,5 +319,8 @@ bool Option::SetOption(const char *_opt, const char *_value)
   o = FindOption(_opt);
   if(o == NULL ) o = new Opt(_opt);
   o->SetValue(_value);
-  Save();
+  Serial.print("Setting option ");
+  Serial.print(_opt);
+  Serial.print(" to ");
+  Serial.println(_value);
 }

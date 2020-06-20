@@ -1,10 +1,10 @@
 /*
  * HAS_Main.h
- * 
+ *
  * (C) 2019 James Dixon
- * 
+ *
  * Main setup functionality
- * 
+ *
  */
 #ifndef _MAIN_H_
 #define _MAIN_H_
@@ -13,7 +13,7 @@
 #include <Arduino.h>
 #include <PubSubClient.h>
 
-void tryConnectWIFI(); 
+void tryConnectWIFI();
 void disconnectWIFI();
 extern String WIFI_status;
 extern PubSubClient PSclient;
@@ -22,7 +22,7 @@ extern PubSubClient PSclient;
 //   - pin
 //   - type - toggle or on/off
 //   - id => <unit>/<cmnd>/switch<id> ON/OFF/TOGGLE
-//   -  topic 
+//   -  topic
 class T_Switch
 {
   public:
@@ -36,22 +36,22 @@ class T_Switch
     void On();
     void Off();
     String CmndString();
-    
+
     byte id;
     // note doesn't support a single pin being on or off, as that puts state into the switch
     // pins assumed to be pullup, so press to pull low
     byte pin1;    // board pin toggle or on
     byte pin2;    // board pin off
-    byte type;    // 0 toggle press; 1 toggle release; 2 pushbutton (push on/release off); 3 pin1 on, pin2 off
+    byte type;    // see switch types defined in config.h
     String topic; // send this topic as well
 
     bool latch;   // pin1 latch
     bool latch2;  // pin2 latch
 };
 
-/* 
- * Set output state 
- */ 
+/*
+ * Set output state
+ */
 void SetOutput( int _id, bool _state, bool _toggle=false );
 bool GetOutput(int _id);
 extern T_Switch switches[4];

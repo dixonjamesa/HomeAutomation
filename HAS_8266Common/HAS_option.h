@@ -87,6 +87,9 @@ class Option
     // [Prefix3]
     const char *Prefix3() { return GetOption("Prefix3", INFO_PREFIX);}
     void Prefix3(const char *_val) {SetOption("Prefix3", _val);}
+    // [Prefix4]
+    const char *Prefix4() { return GetOption("Prefix4", LOG_PREFIX);}
+    void Prefix4(const char *_val) {SetOption("Prefix4", _val);}
 
   // Switches...
     // [Sw<1-8>Pin1]
@@ -154,6 +157,16 @@ class Option
     void Blue(int _val) { char vb[8]; sprintf(vb, "%d", max(0, min(255, _val))); SetOption("Blue", vb);}
     const int Bright() { return atoi(GetOption("Bright", 128));}
     void Bright(int _val) { char vb[8]; sprintf(vb, "%d", max(0, min(255, _val))); SetOption("Bright", vb);}
+    const int Animation() { return atoi(GetOption("Animation", 0));}
+    void Animation(int _val) { char vb[8]; sprintf(vb, "%d",  _val); SetOption("Animation", vb);}
+
+    // [RF433Pin]
+    const int RF433Pin() { return atoi(GetOption("RF433Pin", RF433_PIN));}
+    void RF433Pin(int _val) {char vb[16]; sprintf(vb,"%d", _val); SetOption("RF433Pin", vb);}
+    // [RF<1-8>Code]
+    const int RFCode(int _id) { char tb[16]; sprintf(tb, "RF%dCode", _id); return atoi(GetOption(tb, rfCodes[_id-1]));}
+    void RFCode(int _id, int _val) { char tb[16],vb[16]; sprintf(tb, "RF%dCode", _id); sprintf(vb, "%d", _val); SetOption(tb, vb);}
+
 
     // [ResetPin]
     const int ResetPin() { return atoi(GetOption("ResetPin", RESET_PIN));}
@@ -204,6 +217,9 @@ class Option
     int rotDDefaults[NUM_SWITCHES];
     const char *rotTopicDefaults[NUM_ROTS];
     const char *friendlyDefaults[NUM_OUTS];
+    int rfCodes[NUM_OUTS]; // RF codes
+    const char *rfTopicDefaults[NUM_SWITCHES]; // RF MQTT topics
+
 };
 
 
